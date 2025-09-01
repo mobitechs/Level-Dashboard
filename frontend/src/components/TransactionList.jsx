@@ -51,7 +51,7 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
   
   const [filters, setFilters] = useState({
     search: '',
-    startDate: thirtyDaysAgo,  // Changed from today to last 30 days
+    startDate: thirtyDaysAgo,
     endDate: today,
     planType: '',
     deviceType: '',
@@ -88,7 +88,6 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
       setLoading(true);
       console.log('Fetching transactions with filters:', filters);
       
-      // Convert offset to page for API
       const page = Math.floor(filters.offset / filters.limit) + 1;
       const apiFilters = {
         ...filters,
@@ -110,9 +109,7 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
           hasPrev: response.pagination.hasPrev
         });
         
-        // Extract dynamic options from the data
         extractDynamicOptions(response.data);
-        
         console.log('Transactions loaded:', response.data.length);
       } else {
         showMessage('error', 'Failed to fetch transactions: ' + (response?.message || 'Unknown error'));
@@ -148,7 +145,7 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
       if (transaction.local_currency) uniqueCurrencies.add(transaction.local_currency);
     });
 
-    // Always include currently selected values in options even if they don't appear in current results
+    // Always include currently selected values in options
     if (filters.deviceType && filters.deviceType !== '') {
       uniqueDeviceTypes.add(filters.deviceType);
     }
@@ -165,21 +162,19 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
       uniqueCurrencies.add(filters.localCurrency);
     }
 
-    // Add device type options (maintain consistent order)
     ['1', '2', '3'].forEach(type => {
       if (uniqueDeviceTypes.has(type)) {
         const label = type === '1' ? 'Android' : type === '2' ? 'iOS' : 'Web';
         deviceTypes.push({ value: type, label });
       }
     });
-    // Add any other device types found in data
+    
     uniqueDeviceTypes.forEach(type => {
       if (!['1', '2', '3'].includes(type)) {
         deviceTypes.push({ value: type, label: 'Other' });
       }
     });
 
-    // Add other dynamic options
     uniqueStatuses.forEach(status => {
       statusOptions.push({ 
         value: status, 
@@ -216,7 +211,6 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
 
   const fetchStats = async () => {
     try {
-      // Pass current filters to get filtered stats
       const statsParams = new URLSearchParams();
       Object.entries(filters).forEach(([key, value]) => {
         if (value && key !== 'offset' && key !== 'limit' && key !== 'sortBy' && key !== 'sortOrder') {
@@ -237,7 +231,7 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
     setFilters(prev => ({
       ...prev,
       [key]: value,
-      offset: 0 // Reset to first page when filtering
+      offset: 0
     }));
   };
 
@@ -300,7 +294,6 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
   };
 
   const formatCurrency = (amount, currency = 'USD') => {
-    // Validate currency code and provide fallback
     const isValidCurrency = (code) => {
       if (!code || typeof code !== 'string' || code.length !== 3) return false;
       try {
@@ -321,7 +314,6 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
         maximumFractionDigits: 0
       }).format(amount || 0);
     } catch (error) {
-      // Fallback to simple number formatting with currency symbol
       return `${safeCurrency} ${new Intl.NumberFormat('en-US', {
         minimumFractionDigits: 0,
         maximumFractionDigits: 0
@@ -348,13 +340,13 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
   const getPlatformIcon = (deviceType) => {
     switch (parseInt(deviceType)) {
       case 1:
-        return <Smartphone size={12} style={{ color: '#10b981' }} />;
+        return <Smartphone size={14} style={{ color: '#10b981' }} />;
       case 2:
-        return <Apple size={12} style={{ color: '#64748b' }} />;
+        return <Apple size={14} style={{ color: '#64748b' }} />;
       case 3:
-        return <Globe size={12} style={{ color: '#3b82f6' }} />;
+        return <Globe size={14} style={{ color: '#3b82f6' }} />;
       default:
-        return <Globe size={12} style={{ color: '#94a3b8' }} />;
+        return <Globe size={14} style={{ color: '#94a3b8' }} />;
     }
   };
 
@@ -448,144 +440,346 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
       {stats && (
         <div style={{ 
           display: 'grid', 
-          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
-          gap: '16px', 
-          paddingBottom: '16px',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', 
+          gap: '20px', 
+          paddingBottom: '20px',
           flexShrink: 0
         }}>
-          {/* Total Transactions */}
-          <div style={{ background: 'white', padding: '16px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-              <CreditCard size={16} style={{ color: '#3b82f6' }} />
-              <span style={{ fontSize: '0.875rem', fontWeight: '600', color: '#64748b' }}>Total Transactions</span>
+          {/* Combined Transactions Card */}
+          <div style={{ 
+            background: 'white', 
+            padding: '20px', 
+            borderRadius: '12px', 
+            border: '1px solid #e2e8f0',
+            boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05)',
+            minHeight: '280px',
+            display: 'flex',
+            flexDirection: 'column'
+          }}>
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{ 
+                fontSize: '1rem', 
+                fontWeight: '600', 
+                color: '#64748b', 
+                marginBottom: '8px',
+                letterSpacing: '0.025em'
+              }}>
+                Transactions
+              </div>
+              <div style={{ fontSize: '2.25rem', fontWeight: '700', color: '#1f2937', lineHeight: '1' }}>
+                {formatNumber(stats.overview.total_transactions)}
+              </div>
             </div>
-            <div style={{ fontSize: '1.5rem', fontWeight: '700', color: '#1f2937' }}>
-              {formatNumber(stats.overview.total_transactions)}
-            </div>
-            {stats.growth && (
-              <div style={{ display: 'flex', alignItems: 'center', marginTop: '8px', gap: '4px' }}>
-                {stats.growth.is_transaction_growth_positive ? (
-                  <TrendingUp size={14} style={{ color: '#10b981' }} />
-                ) : (
-                  <TrendingDown size={14} style={{ color: '#ef4444' }} />
-                )}
-                <span style={{ 
-                  fontSize: '0.75rem', 
-                  fontWeight: '600',
-                  color: stats.growth.is_transaction_growth_positive ? '#10b981' : '#ef4444'
-                }}>
-                  {Math.abs(stats.growth.transaction_growth_30d)}% vs last 30d
+            
+            <div style={{ marginBottom: '12px' }}>
+              <div style={{ 
+                fontSize: '0.875rem', 
+                color: '#ef4444', 
+                fontWeight: '600',
+                background: '#fef2f2',
+                padding: '4px 8px',
+                borderRadius: '4px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px'
+              }}>
+                Failed
+                <span style={{ fontSize: '1rem', fontWeight: '700', color: '#1f2937' }}>
+                  {formatNumber(stats.overview.failed_transactions)} ({formatPercentage(stats.overview.failure_rate)})
                 </span>
               </div>
-            )}
-          </div>
+            </div>
 
-          {/* Total Revenue (Single total) */}
-          <div style={{ background: 'white', padding: '16px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-              <DollarSign size={16} style={{ color: '#10b981' }} />
-              <span style={{ fontSize: '0.875rem', fontWeight: '600', color: '#64748b' }}>Total Revenue</span>
-            </div>
-            <div style={{ fontSize: '1.5rem', fontWeight: '700', color: '#1f2937' }}>
-              {formatCurrency(stats.overview.total_revenue)}
-            </div>
-            {stats.growth && (
-              <div style={{ display: 'flex', alignItems: 'center', marginTop: '8px', gap: '4px' }}>
-                {stats.growth.is_revenue_growth_positive ? (
-                  <TrendingUp size={14} style={{ color: '#10b981' }} />
-                ) : (
-                  <TrendingDown size={14} style={{ color: '#ef4444' }} />
-                )}
-                <span style={{ 
-                  fontSize: '0.75rem', 
-                  fontWeight: '600',
-                  color: stats.growth.is_revenue_growth_positive ? '#10b981' : '#ef4444'
-                }}>
-                  {Math.abs(stats.growth.revenue_growth_30d)}% vs last 30d
-                </span>
-              </div>
-            )}
-          </div>
-
-          {/* Failed/Billing Issues */}
-          <div style={{ background: 'white', padding: '16px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-              <AlertTriangle size={16} style={{ color: '#ef4444' }} />
-              <span style={{ fontSize: '0.875rem', fontWeight: '600', color: '#64748b' }}>Failed Transactions</span>
-            </div>
-            <div style={{ fontSize: '1.5rem', fontWeight: '700', color: '#1f2937' }}>
-              {formatNumber(stats.overview.failed_transactions)}
-            </div>
-            <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '4px' }}>
-              {formatPercentage(
-                stats.overview.total_transactions > 0 
-                  ? (stats.overview.failed_transactions / stats.overview.total_transactions) * 100
-                  : 0
-              )} failure rate
-            </div>
-          </div>
-
-          {/* New vs Repeat Customers */}
-          <div style={{ background: 'white', padding: '16px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-              <Users size={16} style={{ color: '#8b5cf6' }} />
-              <span style={{ fontSize: '0.875rem', fontWeight: '600', color: '#64748b' }}>Customer Type</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ 
+              borderTop: '2px dashed #e2e8f0', 
+              paddingTop: '16px',
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: '16px',
+              flex: 1
+            }}>
               <div>
-                <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>New</div>
-                <div style={{ fontSize: '1rem', fontWeight: '700', color: '#3b82f6' }}>
+                <div style={{ 
+                  fontSize: '0.875rem', 
+                  fontWeight: '600', 
+                  color: '#3b82f6',
+                  marginBottom: '8px',
+                  background: '#eff6ff',
+                  padding: '4px 8px',
+                  borderRadius: '4px',
+                  display: 'inline-block'
+                }}>
+                  New
+                </div>
+                <div style={{ fontSize: '1.5rem', fontWeight: '700', color: '#1f2937', marginBottom: '4px', marginTop: '8px' }}>
                   {formatNumber(stats.customer_type?.new_transactions || 0)}
                 </div>
-                <div style={{ fontSize: '0.65rem', color: '#9ca3af' }}>
-                  {formatNumber(stats.customer_type?.unique_new_users || 0)} users
-                </div>
               </div>
+              
               <div>
-                <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>Repeat</div>
-                <div style={{ fontSize: '1rem', fontWeight: '700', color: '#8b5cf6' }}>
+                <div style={{ 
+                  fontSize: '0.875rem', 
+                  fontWeight: '600', 
+                  color: '#8b5cf6',
+                  marginBottom: '8px',
+                  background: '#faf5ff',
+                  padding: '4px 8px',
+                  borderRadius: '4px',
+                  display: 'inline-block'
+                }}>
+                  Repeat
+                </div>
+                <div style={{ fontSize: '1.5rem', fontWeight: '700', color: '#1f2937', marginBottom: '4px', marginTop: '8px' }}>
                   {formatNumber(stats.customer_type?.repeat_transactions || 0)}
                 </div>
-                <div style={{ fontSize: '0.65rem', color: '#9ca3af' }}>
+                <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>
                   {formatNumber(stats.customer_type?.unique_repeat_users || 0)} users
                 </div>
               </div>
             </div>
-            <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '4px' }}>
-              {formatPercentage(stats.customer_type?.new_customer_percentage || 0)} new customers
+          </div>
+
+          {/* Enhanced Revenue Card with Platform Breakdown */}
+          <div style={{ 
+            background: 'white', 
+            padding: '20px', 
+            borderRadius: '12px', 
+            border: '1px solid #e2e8f0',
+            boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05)',
+            minHeight: '280px',
+            display: 'flex',
+            flexDirection: 'column'
+          }}>
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{ 
+                fontSize: '1rem', 
+                fontWeight: '600', 
+                color: '#64748b', 
+                marginBottom: '8px',
+                letterSpacing: '0.025em'
+              }}>
+                Revenue
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                <div style={{ fontSize: '2.25rem', fontWeight: '700', color: '#1f2937', lineHeight: '1' }}>
+                  {formatCurrency(stats.overview.total_revenue)}
+                </div>
+                {stats.growth && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    {stats.growth.is_revenue_growth_positive ? (
+                      <TrendingUp size={16} style={{ color: '#10b981' }} />
+                    ) : (
+                      <TrendingDown size={16} style={{ color: '#ef4444' }} />
+                    )}
+                    <span style={{ 
+                      fontSize: '0.875rem', 
+                      fontWeight: '600',
+                      color: stats.growth.is_revenue_growth_positive ? '#10b981' : '#ef4444'
+                    }}>
+                      ({Math.abs(stats.growth.revenue_growth_30d)}% vs last 30d)
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div style={{ 
+              borderTop: '2px dashed #e2e8f0', 
+              paddingTop: '16px',
+              flex: 1
+            }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '24px', marginBottom: '16px' }}>
+                {stats.by_platform.map((platform, index) => {
+                  const colors = [
+                    { bg: '#f0fdf4', text: '#10b981' }, // Android - green
+                    { bg: '#f8fafc', text: '#64748b' }, // iOS - gray  
+                    { bg: '#fef3c7', text: '#f59e0b' }  // Other - yellow
+                  ];
+                  return (
+                    <div key={platform.device_type}>
+                      <div style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'center', 
+                        gap: '4px',
+                        marginBottom: '12px',
+                        background: colors[index].bg,
+                        padding: '8px 12px',
+                        borderRadius: '6px',
+                        fontWeight: '600',
+                        fontSize: '0.875rem',
+                        color: colors[index].text
+                      }}>
+                        {getPlatformIcon(platform.device_type)}
+                        {platform.platform_name}
+                      </div>
+                      <div style={{ 
+                        fontSize: '1.25rem', 
+                        fontWeight: '700', 
+                        color: '#1f2937',
+                        textAlign: 'center',
+                        marginBottom: '4px'
+                      }}>
+                        {formatCurrency(platform.revenue)}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              
+              <div style={{ 
+                borderTop: '1px solid #f1f5f9', 
+                paddingTop: '12px',
+                textAlign: 'center'
+              }}>
+                <div style={{ 
+                  fontSize: '0.875rem',
+                  color: '#6b7280',
+                  fontWeight: '500',
+                  marginBottom: '8px'
+                }}>
+                  Transactions
+                </div>
+                <div style={{ 
+                  display: 'grid', 
+                  gridTemplateColumns: '1fr 1fr 1fr', 
+                  gap: '24px',
+                  fontSize: '1rem',
+                  fontWeight: '600',
+                  color: '#1f2937'
+                }}>
+                  {stats.by_platform.map((platform) => (
+                    <div key={platform.device_type} style={{ textAlign: 'center' }}>
+                      {formatNumber(platform.count)}
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* Plan Type Breakdown */}
+          {/* Plan Type Breakdown - Reduced spacing */}
           {stats.plan_breakdown && (
-            <div style={{ background: 'white', padding: '16px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+            <div style={{ 
+              background: 'white', 
+              padding: '20px', 
+              borderRadius: '12px', 
+              border: '1px solid #e2e8f0', 
+              boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05)',
+              gridColumn: 'span 2',
+              minHeight: '280px'
+            }}>
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '8px', 
+                marginBottom: '16px' 
+              }}>
                 <Package size={16} style={{ color: '#f59e0b' }} />
-                <span style={{ fontSize: '0.875rem', fontWeight: '600', color: '#64748b' }}>
+                <span style={{ 
+                  fontSize: '1rem', 
+                  fontWeight: '600', 
+                  color: '#64748b',
+                  letterSpacing: '0.025em'
+                }}>
                   Plan Types
                 </span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              
+              {/* Three columns layout - reduced gaps further */}
+              <div style={{ 
+                display: 'grid', 
+                gridTemplateColumns: '1fr 1fr 1fr', 
+                gap: '6px', 
+                padding: '12px',
+                background: '#f8fafc',
+                borderRadius: '8px'
+              }}>
+                {/* Monthly */}
                 <div>
-                  <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>Monthly</div>
-                  <div style={{ fontSize: '1rem', fontWeight: '700', color: '#3b82f6' }}>
+                  <div style={{ 
+                    fontSize: '1rem', 
+                    fontWeight: '600', 
+                    color: '#3b82f6', 
+                    marginBottom: '6px',
+                    background: '#eff6ff',
+                    padding: '4px 8px',
+                    borderRadius: '4px',
+                    display: 'inline-block'
+                  }}>
+                    Monthly
+                  </div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: '700', color: '#1f2937', marginBottom: '6px', marginTop: '8px' }}>
                     {formatNumber(stats.plan_breakdown.monthly_count || 0)}
                   </div>
-                </div>
-                <div>
-                  <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>Half Yearly</div>
-                  <div style={{ fontSize: '1rem', fontWeight: '700', color: '#8b5cf6' }}>
-                    {formatNumber(stats.plan_breakdown.half_yearly_count || 0)}
+                  <div style={{ fontSize: '0.875rem', color: '#6b7280', marginBottom: '2px' }}>
+                    {formatNumber(stats.plan_breakdown.monthly_user_breakdown?.repeat_transactions || 0)} repeat
+                  </div>
+                  <div style={{ fontSize: '0.875rem', color: '#6b7280' }}>
+                    {formatNumber(stats.plan_breakdown.monthly_user_breakdown?.unique_repeat_users || 0)} unique
                   </div>
                 </div>
+
+                {/* Half Yearly */}
                 <div>
-                  <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>Yearly</div>
-                  <div style={{ fontSize: '1rem', fontWeight: '700', color: '#10b981' }}>
+                  <div style={{ 
+                    fontSize: '1rem', 
+                    fontWeight: '600', 
+                    color: '#8b5cf6', 
+                    marginBottom: '6px',
+                    background: '#faf5ff',
+                    padding: '4px 8px',
+                    borderRadius: '4px',
+                    display: 'inline-block'
+                  }}>
+                    Half Yearly
+                  </div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: '700', color: '#1f2937', marginBottom: '6px', marginTop: '8px' }}>
+                    {formatNumber(stats.plan_breakdown.half_yearly_count || 0)}
+                  </div>
+                  <div style={{ fontSize: '0.875rem', color: '#6b7280', marginBottom: '2px' }}>
+                    {formatNumber(stats.plan_breakdown.half_yearly_user_breakdown?.repeat_transactions || 0)} repeat
+                  </div>
+                  <div style={{ fontSize: '0.875rem', color: '#6b7280' }}>
+                    {formatNumber(stats.plan_breakdown.half_yearly_user_breakdown?.unique_repeat_users || 0)} unique
+                  </div>
+                </div>
+
+                {/* Yearly */}
+                <div>
+                  <div style={{ 
+                    fontSize: '1rem', 
+                    fontWeight: '600', 
+                    color: '#10b981', 
+                    marginBottom: '6px',
+                    background: '#f0fdf4',
+                    padding: '4px 8px',
+                    borderRadius: '4px',
+                    display: 'inline-block'
+                  }}>
+                    Yearly
+                  </div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: '700', color: '#1f2937', marginBottom: '6px', marginTop: '8px' }}>
                     {formatNumber(stats.plan_breakdown.yearly_count || 0)}
+                  </div>
+                  <div style={{ fontSize: '0.875rem', color: '#6b7280', marginBottom: '2px' }}>
+                    {formatNumber(stats.plan_breakdown.yearly_user_breakdown?.repeat_transactions || 0)} repeat
+                  </div>
+                  <div style={{ fontSize: '0.875rem', color: '#6b7280' }}>
+                    {formatNumber(stats.plan_breakdown.yearly_user_breakdown?.unique_repeat_users || 0)} unique
                   </div>
                 </div>
               </div>
-              <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>
+
+              <div style={{ 
+                fontSize: '0.875rem', 
+                color: '#6b7280', 
+                borderTop: '1px solid #e2e8f0', 
+                paddingTop: '12px', 
+                marginTop: '16px',
+                fontWeight: '500',
+                textAlign: 'center'
+              }}>
                 Total Revenue: {formatCurrency(stats.plan_breakdown.total_revenue || 0)}
               </div>
             </div>
@@ -593,67 +787,7 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
         </div>
       )}
 
-      {/* Updated Quick Action Buttons - Moved above filters */}
-      <div style={{ 
-        display: 'flex', 
-        gap: '12px', 
-        paddingBottom: '16px',
-        flexShrink: 0,
-        flexWrap: 'wrap'
-      }}>
-        <button 
-          onClick={handleTodayTransactions}
-          className="btn-secondary"
-          style={{ fontSize: '0.8rem', padding: '6px 12px' }}
-        >
-          Today's Transactions
-        </button>
-        <button 
-          onClick={() => setFilters(prev => ({ 
-            ...prev, 
-            startDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-            endDate: today,
-            offset: 0 
-          }))}
-          className="btn-secondary"
-          style={{ fontSize: '0.8rem', padding: '6px 12px' }}
-        >
-          Last 7 Days
-        </button>
-        <button 
-          onClick={() => setFilters(prev => ({ 
-            ...prev, 
-            startDate: thirtyDaysAgo,
-            endDate: today,
-            offset: 0 
-          }))}
-          className="btn-secondary"
-          style={{ fontSize: '0.8rem', padding: '6px 12px' }}
-        >
-          Last 30 Days
-        </button>
-        <button 
-          onClick={() => setFilters(prev => ({ 
-            ...prev, 
-            startDate: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-            endDate: today,
-            offset: 0 
-          }))}
-          className="btn-secondary"
-          style={{ fontSize: '0.8rem', padding: '6px 12px' }}
-        >
-          Before Start Date (90 Days)
-        </button>
-        <button 
-          onClick={handleShowAllTransactions}
-          className="btn-secondary"
-          style={{ fontSize: '0.8rem', padding: '6px 12px' }}
-        >
-          Show All
-        </button>
-      </div>
-
-      {/* Updated Filters Section - Reorganized layout */}
+      {/* Filters Section */}
       <div style={{ 
         paddingBottom: '16px', 
         flexShrink: 0
@@ -661,14 +795,14 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
         {/* Main Filters Row */}
         <div style={{
           display: 'grid',
-          gridTemplateColumns: '250px 120px 120px 120px 120px 120px 100px',
+          gridTemplateColumns: '250px 120px 120px 120px 120px 120px 100px 100px',
           gap: '12px',
           padding: '16px',
           background: 'white',
           border: '1px solid #e2e8f0',
           borderRadius: '8px'
         }}>
-          {/* Shortened Search Box */}
+          {/* Search Box */}
           <div style={{ position: 'relative' }}>
             <Search size={16} style={{ 
               position: 'absolute', 
@@ -692,7 +826,7 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
             />
           </div>
 
-          {/* All Methods - Moved beside search */}
+          {/* Payment Method */}
           <select
             value={filters.paymentMethod}
             onChange={(e) => handleFilterChange('paymentMethod', e.target.value)}
@@ -708,7 +842,7 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
             ))}
           </select>
 
-          {/* All Countries - Moved beside search */}
+          {/* Currency */}
           <select
             value={filters.localCurrency}
             onChange={(e) => handleFilterChange('localCurrency', e.target.value)}
@@ -789,9 +923,18 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
           >
             Clear
           </button>
+
+          {/* Show All */}
+          <button 
+            onClick={handleShowAllTransactions}
+            className="btn-secondary"
+            style={{ fontSize: '0.8rem', padding: '6px 12px' }}
+          >
+            Show All
+          </button>
         </div>
 
-        {/* Date Range Filters - Second row */}
+        {/* Date Range Filters with Quick Action Buttons */}
         <div style={{ 
           display: 'flex', 
           alignItems: 'center',
@@ -823,6 +966,39 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
                 fontSize: '0.875rem'
               }}
             />
+
+            {/* Quick Action Buttons */}
+            <button 
+              onClick={handleTodayTransactions}
+              className="btn-secondary"
+              style={{ fontSize: '0.75rem', padding: '6px 10px' }}
+            >
+              Today's Transactions
+            </button>
+            <button 
+              onClick={() => setFilters(prev => ({ 
+                ...prev, 
+                startDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+                endDate: today,
+                offset: 0 
+              }))}
+              className="btn-secondary"
+              style={{ fontSize: '0.75rem', padding: '6px 10px' }}
+            >
+              Last 7 Days
+            </button>
+            <button 
+              onClick={() => setFilters(prev => ({ 
+                ...prev, 
+                startDate: thirtyDaysAgo,
+                endDate: today,
+                offset: 0 
+              }))}
+              className="btn-secondary"
+              style={{ fontSize: '0.75rem', padding: '6px 10px' }}
+            >
+              Last 30 Days
+            </button>
           </div>
 
           <button 
@@ -857,7 +1033,7 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
         </div>
       )}
 
-      {/* Rest of the component remains the same - Data Table Container */}
+      {/* Data Table Container */}
       <div style={{ 
         flex: 1,
         background: 'white', 
@@ -1069,7 +1245,6 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
           gap: '16px',
           flexShrink: 0
         }}>
-          {/* Rows per page */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{ fontSize: '0.875rem', color: '#64748b' }}>Rows per page:</span>
             <select
@@ -1090,12 +1265,10 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
             </select>
           </div>
 
-          {/* Display range */}
           <div style={{ fontSize: '0.875rem', color: '#64748b' }}>
             {getDisplayedRange()}
           </div>
 
-          {/* Navigation buttons */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <button 
               onClick={() => handlePageChange(pagination.currentPage - 1)}
@@ -1123,7 +1296,7 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
                 cursor: !pagination.hasNext ? 'not-allowed' : 'pointer',
                 opacity: !pagination.hasNext ? 0.5 : 1,
                 display: 'flex',
-                alignItems: 'center'
+                alignItems: 'centers'
               }}
             >
               <ChevronRight size={16} color="#64748b" />

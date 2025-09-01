@@ -1,6 +1,5 @@
 const pool = require('../config/level_database');
 
-// Get enhanced transaction statistics based on date filters
 const getTransactionStats = async (req, res) => {
   try {
     const {
@@ -72,10 +71,10 @@ const getTransactionStats = async (req, res) => {
       ORDER BY total_revenue DESC
     `, params);
 
-    // Calculate total revenue across all currencies (convert to primary currency for growth calc)
+    // Calculate total revenue across all currencies
     const totalRevenue = revenueStats.reduce((sum, row) => sum + parseFloat(row.total_revenue || 0), 0);
 
-    // 3. New vs Repeat Transactions (based on user_id occurrence) - Updated to include unique repeat users
+    // 3. New vs Repeat Transactions (based on user_id occurrence)
     const [newVsRepeatStats] = await pool.execute(`
       SELECT 
         SUM(CASE WHEN user_purchase_count = 1 THEN user_purchase_count ELSE 0 END) as new_transactions,
@@ -108,39 +107,35 @@ const getTransactionStats = async (req, res) => {
       ORDER BY count DESC
     `, params);
 
-    // 5. Plan Type Distribution with Time Periods
-    const [planStats] = await pool.execute(`
+    // 5. Plan Type with Repeat/New User Breakdown
+    const [planTypeUserBreakdown] = await pool.execute(`
       SELECT 
-        plan_type,
-        COUNT(*) as count,
-        SUM(CASE 
-          WHEN status IN ('completed', 'success') THEN 
-            COALESCE(local_amount, amount, 0)
-          ELSE 0 
-        END) as revenue,
-        AVG(CASE 
-          WHEN status IN ('completed', 'success') THEN 
-            COALESCE(local_amount, amount, 0)
-          ELSE NULL 
-        END) as avg_amount,
-        -- Count by plan type patterns
-        SUM(CASE 
-          WHEN plan_type LIKE '%monthly%' OR plan_type LIKE '%month%' OR plan_type = 'monthly' 
-          THEN 1 ELSE 0 
-        END) as monthly_count,
-        SUM(CASE 
-          WHEN plan_type LIKE '%half%' OR plan_type LIKE '%6%' OR plan_type LIKE '%semi%'
-          THEN 1 ELSE 0 
-        END) as half_yearly_count,
-        SUM(CASE 
-          WHEN plan_type LIKE '%yearly%' OR plan_type LIKE '%year%' OR plan_type LIKE '%annual%' OR plan_type = 'yearly'
-          THEN 1 ELSE 0 
-        END) as yearly_count
-      FROM new_transactions
-      ${whereClause} 
-      AND plan_type IS NOT NULL
-      GROUP BY plan_type
-      ORDER BY count DESC
+        CASE 
+          WHEN plan_type LIKE '%monthly%' OR plan_type LIKE '%month%' OR plan_type = 'monthly' THEN 'monthly'
+          WHEN plan_type LIKE '%half%' OR plan_type LIKE '%6%' OR plan_type LIKE '%semi%' THEN 'half_yearly'
+          WHEN plan_type LIKE '%yearly%' OR plan_type LIKE '%year%' OR plan_type LIKE '%annual%' OR plan_type = 'yearly' THEN 'yearly'
+          ELSE 'other'
+        END as plan_category,
+        SUM(CASE WHEN user_purchase_count = 1 THEN user_purchase_count ELSE 0 END) as new_transactions,
+        SUM(CASE WHEN user_purchase_count > 1 THEN user_purchase_count ELSE 0 END) as repeat_transactions,
+        COUNT(CASE WHEN user_purchase_count = 1 THEN 1 END) as unique_new_users,
+        COUNT(CASE WHEN user_purchase_count > 1 THEN 1 END) as unique_repeat_users
+      FROM (
+        SELECT 
+          plan_type,
+          user_id,
+          COUNT(*) as user_purchase_count
+        FROM new_transactions 
+        ${whereClause}
+        AND plan_type IS NOT NULL
+        GROUP BY plan_type, user_id
+      ) as user_plan_stats
+      GROUP BY CASE 
+        WHEN plan_type LIKE '%monthly%' OR plan_type LIKE '%month%' OR plan_type = 'monthly' THEN 'monthly'
+        WHEN plan_type LIKE '%half%' OR plan_type LIKE '%6%' OR plan_type LIKE '%semi%' THEN 'half_yearly'
+        WHEN plan_type LIKE '%yearly%' OR plan_type LIKE '%year%' OR plan_type LIKE '%annual%' OR plan_type = 'yearly' THEN 'yearly'
+        ELSE 'other'
+      END
     `, params);
 
     // 6. Plan Type Summary (Monthly, Half-yearly, Yearly totals)
@@ -244,24 +239,44 @@ const getTransactionStats = async (req, res) => {
       }
     });
 
+    // Process plan type user breakdown
+    const planTypeBreakdown = {
+      monthly: { new_transactions: 0, repeat_transactions: 0, unique_new_users: 0, unique_repeat_users: 0 },
+      half_yearly: { new_transactions: 0, repeat_transactions: 0, unique_new_users: 0, unique_repeat_users: 0 },
+      yearly: { new_transactions: 0, repeat_transactions: 0, unique_new_users: 0, unique_repeat_users: 0 }
+    };
+
+    planTypeUserBreakdown.forEach(row => {
+      if (row.plan_category !== 'other') {
+        planTypeBreakdown[row.plan_category] = {
+          new_transactions: parseInt(row.new_transactions || 0),
+          repeat_transactions: parseInt(row.repeat_transactions || 0),
+          unique_new_users: parseInt(row.unique_new_users || 0),
+          unique_repeat_users: parseInt(row.unique_repeat_users || 0)
+        };
+      }
+    });
+
     // Compile comprehensive statistics
     const stats = {
       // Main Cards Data
       overview: {
         total_transactions: parseInt(overviewStats[0].total_transactions),
-        total_revenue: totalRevenue, // Sum across all currencies
+        total_revenue: totalRevenue,
         failed_transactions: parseInt(overviewStats[0].failed_transactions),
         pending_transactions: parseInt(overviewStats[0].pending_transactions),
         successful_transactions: parseInt(overviewStats[0].successful_transactions),
         avg_transaction_amount: parseFloat(overviewStats[0].avg_transaction_amount || 0),
         success_rate: overviewStats[0].total_transactions > 0 ? 
-          (overviewStats[0].successful_transactions / overviewStats[0].total_transactions * 100).toFixed(2) : 0
+          (overviewStats[0].successful_transactions / overviewStats[0].total_transactions * 100).toFixed(2) : 0,
+        failure_rate: overviewStats[0].total_transactions > 0 ? 
+          (overviewStats[0].failed_transactions / overviewStats[0].total_transactions * 100).toFixed(1) : 0
       },
 
       // Revenue by Currency (for multi-currency display)
       revenue_by_currency: revenueByCurrency,
 
-      // New vs Repeat Customers - Updated with unique repeat users
+      // New vs Repeat Customers
       customer_type: {
         new_transactions: parseInt(newVsRepeatStats[0].new_transactions || 0),
         repeat_transactions: parseInt(newVsRepeatStats[0].repeat_transactions || 0),
@@ -269,17 +284,6 @@ const getTransactionStats = async (req, res) => {
         unique_new_users: parseInt(newVsRepeatStats[0].unique_new_users || 0),
         new_customer_percentage: newVsRepeatStats[0].new_transactions > 0 && overviewStats[0].total_transactions > 0 ?
           (newVsRepeatStats[0].new_transactions / overviewStats[0].total_transactions * 100).toFixed(2) : 0
-      },
-
-      // Plan Type Breakdown (Monthly/Half-yearly/Yearly)
-      plan_breakdown: {
-        monthly_count: parseInt(planBreakdown[0].monthly_count || 0),
-        monthly_revenue: parseFloat(planBreakdown[0].monthly_revenue || 0),
-        half_yearly_count: parseInt(planBreakdown[0].half_yearly_count || 0),
-        half_yearly_revenue: parseFloat(planBreakdown[0].half_yearly_revenue || 0),
-        yearly_count: parseInt(planBreakdown[0].yearly_count || 0),
-        yearly_revenue: parseFloat(planBreakdown[0].yearly_revenue || 0),
-        total_revenue: parseFloat(planBreakdown[0].total_revenue || 0)
       },
 
       // Platform Distribution
@@ -292,18 +296,20 @@ const getTransactionStats = async (req, res) => {
           (row.count / overviewStats[0].total_transactions * 100).toFixed(1) : 0
       })),
 
-      // Plan Distribution  
-      by_plan: planStats.map(row => ({
-        plan_type: row.plan_type,
-        count: parseInt(row.count),
-        revenue: parseFloat(row.revenue || 0),
-        avg_amount: parseFloat(row.avg_amount || 0),
-        monthly_count: parseInt(row.monthly_count || 0),
-        half_yearly_count: parseInt(row.half_yearly_count || 0),
-        yearly_count: parseInt(row.yearly_count || 0),
-        percentage: overviewStats[0].total_transactions > 0 ?
-          (row.count / overviewStats[0].total_transactions * 100).toFixed(1) : 0
-      })),
+      // Plan Type Breakdown (Monthly/Half-yearly/Yearly)
+      plan_breakdown: {
+        monthly_count: parseInt(planBreakdown[0].monthly_count || 0),
+        monthly_revenue: parseFloat(planBreakdown[0].monthly_revenue || 0),
+        half_yearly_count: parseInt(planBreakdown[0].half_yearly_count || 0),
+        half_yearly_revenue: parseFloat(planBreakdown[0].half_yearly_revenue || 0),
+        yearly_count: parseInt(planBreakdown[0].yearly_count || 0),
+        yearly_revenue: parseFloat(planBreakdown[0].yearly_revenue || 0),
+        total_revenue: parseFloat(planBreakdown[0].total_revenue || 0),
+        // Add user breakdown by plan type
+        monthly_user_breakdown: planTypeBreakdown.monthly,
+        half_yearly_user_breakdown: planTypeBreakdown.half_yearly,
+        yearly_user_breakdown: planTypeBreakdown.yearly
+      },
 
       // Payment Method Distribution
       by_payment_method: paymentMethodStats.map(row => ({
@@ -333,8 +339,6 @@ const getTransactionStats = async (req, res) => {
     };
 
     console.log('✅ Enhanced transaction statistics retrieved successfully');
-    console.log('Revenue by currency:', revenueByCurrency);
-    console.log('Plan breakdown:', stats.plan_breakdown);
     
     res.json({
       success: true,
@@ -369,8 +373,6 @@ const getTransactions = async (req, res) => {
       sortBy = 'created_at',
       sortOrder = 'DESC'
     } = req.query;
-
-    console.log('🔄 Getting transactions with filters:', req.query);
 
     const pageInt = parseInt(page, 10);
     const limitInt = parseInt(limit, 10);
@@ -558,7 +560,6 @@ const getTransactionById = async (req, res) => {
     };
     res.json({ success: true, data: transaction });
   } catch (error) {
-    console.error('❌ Error in getTransactionById:', error);
     res.status(500).json({ success: false, message: 'Error fetching transaction', error: error.message });
   }
 };
@@ -584,7 +585,6 @@ const updateTransaction = async (req, res) => {
     }
     res.json({ success: true, message: 'Transaction updated successfully' });
   } catch (error) {
-    console.error('❌ Error in updateTransaction:', error);
     res.status(500).json({ success: false, message: 'Error updating transaction', error: error.message });
   }
 };
@@ -598,7 +598,6 @@ const deleteTransaction = async (req, res) => {
     }
     res.json({ success: true, message: 'Transaction deleted successfully' });
   } catch (error) {
-    console.error('❌ Error in deleteTransaction:', error);
     res.status(500).json({ success: false, message: 'Error deleting transaction', error: error.message });
   }
 };
