@@ -411,6 +411,118 @@ export const deleteTransaction = async (id) => {
   
 };
 
+
+
+
+
+// NEW: Activities APIs (using axios instead of fetch)
+export const getActivities = async (filters = {}) => {
+  try {
+    console.log('🔄 Fetching activities with filters:', filters);
+    const response = await api.get('/activities', { params: filters });
+    console.log('✅ Activities response:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('❌ Error fetching activities:', error);
+    throw error;
+  }
+};
+
+export const getActivityStats = async (queryString = '') => {
+  try {
+    console.log('🔄 Fetching activity stats...');
+    // Parse queryString if provided
+    const params = {};
+    if (queryString && queryString.startsWith('?')) {
+      const urlParams = new URLSearchParams(queryString.substring(1));
+      for (const [key, value] of urlParams.entries()) {
+        params[key] = value;
+      }
+    }
+    
+    const response = await api.get('/activities/stats', { params });
+    console.log('✅ Activity stats response:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('❌ Error fetching activity stats:', error);
+    throw error;
+  }
+};
+
+export const getActivityById = async (id) => {
+  try {
+    console.log('🔄 Fetching activity by ID:', id);
+    const response = await api.get(`/activities/${id}`);
+    console.log('✅ Activity by ID response:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('❌ Error fetching activity by ID:', error);
+    throw error;
+  }
+};
+
+export const updateActivity = async (id, activityData) => {
+  try {
+    console.log('🔄 Updating activity:', id, activityData);
+    const response = await api.put(`/activities/${id}`, activityData);
+    console.log('✅ Update activity response:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('❌ Error updating activity:', error);
+    throw error;
+  }
+};
+
+export const deleteActivity = async (id) => {
+  try {
+    console.log('🔄 Deleting activity:', id);
+    const response = await api.delete(`/activities/${id}`);
+    console.log('✅ Delete activity response:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('❌ Error deleting activity:', error);
+    throw error;
+  }
+};
+
+export const getActivityTypes = async () => {
+  try {
+    console.log('🔄 Fetching activity types');
+    const response = await api.get('/activities/types');
+    console.log('✅ Activity types response:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('❌ Error fetching activity types:', error);
+    throw error;
+  }
+};
+
+export const getActivityCategories = async () => {
+  try {
+    console.log('🔄 Fetching activity categories');
+    const response = await api.get('/activities/categories');
+    console.log('✅ Activity categories response:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('❌ Error fetching activity categories:', error);
+    throw error;
+  }
+};
+
+export const getActivitiesDateRange = async () => {
+  try {
+    console.log('🔄 Fetching activities date range');
+    const response = await api.get('/activities/date-range');
+    console.log('✅ Activities date range response:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('❌ Error fetching activities date range:', error);
+    throw error;
+  }
+};
+
+
+
 export const initializeWhatsApp = async () => {
   try {
     const response = await fetch(`${API_BASE_URL}/whatsapp/initialize`, {

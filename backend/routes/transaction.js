@@ -5,7 +5,7 @@ const {
   getTransactionById,
   updateTransaction,
   deleteTransaction,
-  getTransactionStats
+  getTransactionStats,getTransactionSegmentAnalysis
 } = require('../controllers/transactionController');
 
 // GET /api/transactions/stats - Get transaction statistics
@@ -22,5 +22,7 @@ router.put('/:id', updateTransaction);
 
 // DELETE /api/transactions/:id - Delete transaction
 router.delete('/:id', deleteTransaction);
+
+router.get('/:id/segments', getTransactionSegmentAnalysis);
 
 module.exports = router;

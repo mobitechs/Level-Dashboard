@@ -24,7 +24,10 @@ import {
   ArrowRight,
   CreditCard,
   BarChart,
-  MessageCircle  // NEW: Add MessageCircle icon for WhatsApp
+  MessageCircle,
+  Play,
+  Eye,
+  Calendar
 } from 'lucide-react';
 import { getDashboardData, getAvailableDateRange } from '../services/api';
 import DateRangePicker from './DateRangePicker';
@@ -34,7 +37,9 @@ import AddKPIData from './AddKPIData';
 import KPIComparison from './KPIComparison';
 import KPIBulkImport from './KPIBulkImport';
 import TransactionList from './TransactionList';
-import WhatsAppMessaging from './WhatsAppMessaging';  // NEW: Import WhatsApp component
+import ActivitiesAnalytics from './ActivitiesAnalytics';
+import WhatsAppMessaging from './WhatsAppMessaging';
+import TransactionDetails from './TransactionDetails'; // Add this import
 import '../styles/dashboard.css';
 
 const Dashboard = () => {
@@ -50,6 +55,9 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [datePickerLoading, setDatePickerLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  // Transaction-specific date range state
+  const [transactionDateRange, setTransactionDateRange] = useState({ startDate: '', endDate: '' });
 
   const categoryIcons = {
     'Acquisition': Users,
@@ -84,6 +92,7 @@ const Dashboard = () => {
         };
         
         setDateRange(defaultRange);
+        setTransactionDateRange(defaultRange);
         await fetchDashboardData(defaultRange.startDate, defaultRange.endDate);
       }
     } catch (err) {
@@ -121,6 +130,14 @@ const Dashboard = () => {
     await fetchDashboardData(startDate, endDate);
   };
 
+  const handleTransactionDateRangeApply = async (startDate, endDate) => {
+    setTransactionDateRange({ startDate, endDate });
+  };
+
+  const handleTransactionDateRangeChange = (startDate, endDate) => {
+    setTransactionDateRange({ startDate, endDate });
+  };
+
   const handleDataRefresh = () => {
     if (selectedView === 'dashboard') {
       fetchDashboardData(dateRange.startDate, dateRange.endDate);
@@ -156,7 +173,13 @@ const Dashboard = () => {
     setEditingValueId(null);
   };
 
-  // NEW: Add handler for WhatsApp messaging menu
+  const handleActivitiesMenu = () => {
+    console.log('🎯 Dashboard: Navigating to activities analytics');
+    setSelectedView('activities-analytics');
+    setSelectedKPI(null);
+    setEditingValueId(null);
+  };
+
   const handleWhatsAppMenu = () => {
     console.log('📱 Dashboard: Navigating to WhatsApp messaging');
     setSelectedView('whatsapp-messaging');
@@ -208,6 +231,78 @@ const Dashboard = () => {
     setSelectedView('data-management');
     setSelectedKPI(null);
     setEditingValueId(null);
+  };
+
+  // UPDATED: Handle details button click for transactions - now shows the details page
+  const handleTransactionDetails = () => {
+    console.log('🔍 Dashboard: Opening transaction segment analysis');
+    setSelectedView('transaction-details');
+  };
+
+  // NEW: Export functionality for transactions
+  const handleExportTransactions = async () => {
+    try {
+      console.log('📥 Exporting transaction data...');
+      
+      // You can either call the export API or use the current filtered data
+      const exportParams = new URLSearchParams();
+      exportParams.append('startDate', transactionDateRange.startDate);
+      exportParams.append('endDate', transactionDateRange.endDate);
+      exportParams.append('export', 'true');
+      
+      // Option 1: Direct API call for export
+      const response = await fetch(`/api/transactions?${exportParams}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          downloadCSV(data.data, 'transactions');
+        }
+      }
+    } catch (error) {
+      console.error('Export failed:', error);
+      alert('Export failed. Please try again.');
+    }
+  };
+
+  // NEW: CSV download utility function
+  const downloadCSV = (data, filename) => {
+    if (!data || data.length === 0) {
+      alert('No data to export');
+      return;
+    }
+
+    // Convert data to CSV format
+    const headers = Object.keys(data[0]);
+    const csvContent = [
+      headers.join(','), // Header row
+      ...data.map(row => 
+        headers.map(header => {
+          const value = row[header];
+          // Handle commas and quotes in data
+          if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
+            return `"${value.replace(/"/g, '""')}"`;
+          }
+          return value || '';
+        }).join(',')
+      )
+    ].join('\n');
+
+    // Create and trigger download
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `${filename}_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const formatValue = (value, unit) => {
@@ -335,7 +430,9 @@ const Dashboard = () => {
     if (selectedView === 'edit-data') return 'Edit KPI Data';
     if (selectedView === 'import-data') return 'Import KPI Data';
     if (selectedView === 'transactions') return 'Transactions';
-    if (selectedView === 'whatsapp-messaging') return 'WhatsApp Messaging';  // NEW: Add WhatsApp page title
+    if (selectedView === 'transaction-details') return 'Transaction Segment Analysis'; // NEW
+    if (selectedView === 'activities-analytics') return 'Activities Analytics';
+    if (selectedView === 'whatsapp-messaging') return 'WhatsApp Messaging';
     if (selectedView === 'kpi-data-list' && selectedKPI) {
       return `${selectedKPI.category.name} → ${selectedKPI.kpi.name}`;
     }
@@ -350,7 +447,9 @@ const Dashboard = () => {
     if (selectedView === 'edit-data') return 'Update existing data values';
     if (selectedView === 'import-data') return 'Upload CSV files with multiple data points';
     if (selectedView === 'transactions') return 'View and manage payment transactions';
-    if (selectedView === 'whatsapp-messaging') return 'Send bulk WhatsApp messages to users';  // NEW: Add WhatsApp subtitle
+    if (selectedView === 'transaction-details') return 'Analyze payment behavior patterns and user segments'; // NEW
+    if (selectedView === 'activities-analytics') return 'Track activity performance, user engagement, and usage patterns';
+    if (selectedView === 'whatsapp-messaging') return 'Send bulk WhatsApp messages to users';
     if (selectedView === 'kpi-data-list' && selectedKPI) {
       return `View and manage data for ${selectedKPI.kpi.name}`;
     }
@@ -426,19 +525,10 @@ const Dashboard = () => {
               <span>Add KPI Data</span>
             </div>
 
-            {/* NEW: WhatsApp Messaging Menu Item */}
-            {/* <div 
-              onClick={handleWhatsAppMenu}
-              className={`nav-item ${selectedView === 'whatsapp-messaging' ? 'nav-item-active' : ''}`}
-            >
-              <MessageCircle size={16} />
-              <span>Send WhatsApp Msg</span>
-            </div> */}
-
             <div className="nav-divider"></div>
 
             {/* Stats Section */}
-            <div className="nav-category-label">Stats</div>
+            <div className="nav-category-label">Analytics</div>
             
             <div className="category-section">
               <div 
@@ -447,7 +537,7 @@ const Dashboard = () => {
               >
                 <BarChart size={16} />
                 <span className="flex-1">Analytics</span>
-                <span className="category-count">1</span>
+                <span className="category-count">2</span>
                 {openStats === 'stats' ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
               </div>
               
@@ -460,6 +550,16 @@ const Dashboard = () => {
                   >
                     <CreditCard size={14} style={{ color: '#6b7280', marginRight: '8px' }} />
                     <span className="kpi-name-sidebar">Transactions</span>
+                    <ArrowRight size={12} style={{ color: '#94a3b8', opacity: 0.6 }} />
+                  </div>
+                  
+                  <div 
+                    className="nav-kpi-item-enhanced"
+                    onClick={handleActivitiesMenu}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <Play size={14} style={{ color: '#6b7280', marginRight: '8px' }} />
+                    <span className="kpi-name-sidebar">Activities</span>
                     <ArrowRight size={12} style={{ color: '#94a3b8', opacity: 0.6 }} />
                   </div>
                 </div>
@@ -535,6 +635,63 @@ const Dashboard = () => {
                   </button>
                 </>
               )}
+
+              {/* UPDATED: Show date picker and working buttons for transactions */}
+              {selectedView === 'transactions' && (
+                <>
+                  <DateRangePicker
+                    startDate={transactionDateRange.startDate}
+                    endDate={transactionDateRange.endDate}
+                    onApply={handleTransactionDateRangeApply}
+                    availableDateRange={availableDateRange}
+                    loading={datePickerLoading}
+                  />
+                  
+                  <button 
+                    onClick={handleTransactionDetails}
+                    className="btn-secondary"
+                    style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    <Eye size={14} />
+                    <span>Details</span>
+                  </button>
+                  
+                  <button 
+                    onClick={handleExportTransactions}
+                    className="btn-primary"
+                  >
+                    <Download size={14} />
+                    <span>Export</span>
+                  </button>
+                </>
+              )}
+
+              {/* NEW: Show back button for transaction details */}
+              {selectedView === 'transaction-details' && (
+                <button 
+                  onClick={() => setSelectedView('transactions')}
+                  className="btn-secondary"
+                >
+                  Back to Transactions
+                </button>
+              )}
+
+              {selectedView === 'activities-analytics' && (
+                <>
+                  <DateRangePicker
+                    startDate={transactionDateRange.startDate}
+                    endDate={transactionDateRange.endDate}
+                    onApply={handleTransactionDateRangeApply}
+                    availableDateRange={availableDateRange}
+                    loading={datePickerLoading}
+                  />
+                  
+                  <button className="btn-primary">
+                    <Download size={14} />
+                    <span>Export</span>
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </header>
@@ -578,8 +735,28 @@ const Dashboard = () => {
                 }}
                 onBack={handleBackToDashboard}
                 showBackButton={true}
+                dateRange={transactionDateRange}
+                onDateRangeChange={handleTransactionDateRangeChange}
+                onExport={handleExportTransactions} // NEW: Pass export function
               />
-            ) : selectedView === 'whatsapp-messaging' ? (  // NEW: Add WhatsApp messaging view
+            ) : selectedView === 'transaction-details' ? ( // NEW: Add transaction details view
+              <div style={{ padding: '16px' }}>
+                <TransactionDetails
+                  transactionId="all"
+                  onBack={() => setSelectedView('transactions')}
+                />
+              </div>
+            ) : selectedView === 'activities-analytics' ? (
+              <ActivitiesAnalytics 
+                onEdit={(activityId) => {
+                  console.log('✏️ Edit activity:', activityId);
+                }}
+                onBack={handleBackToDashboard}
+                showBackButton={true}
+                dateRange={transactionDateRange}
+                onDateRangeChange={handleTransactionDateRangeChange}
+              />
+            ) : selectedView === 'whatsapp-messaging' ? (
               <WhatsAppMessaging 
                 onBack={handleBackToDashboard}
                 showBackButton={true}

@@ -3,6 +3,8 @@ const cors = require('cors');
 require('dotenv').config();
 
 const whatsappRoutes = require('./routes/whatsapp');
+const activityRoutes = require('./routes/activityRoutes');
+
 
 
 const app = express();
@@ -15,6 +17,8 @@ app.use(express.json());
 // Routes
 app.use('/api/kpis', require('./routes/kpi'));
 app.use('/api/transactions', require('./routes/transaction'));
+app.use('/api/activities', activityRoutes);
+
 app.use('/api/whatsapp', whatsappRoutes);
 
 // Health check

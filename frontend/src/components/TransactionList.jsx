@@ -25,16 +25,28 @@ import {
   Users,
   TrendingUp,
   TrendingDown,
-  Package
+  Package,
+  FileText
 } from 'lucide-react';
 import { getTransactions, getTransactionStats, deleteTransaction } from '../services/api';
+import DateRangePicker from './DateRangePicker';
+import TransactionDetails from './TransactionDetails';
 
-const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
+const TransactionList = ({ 
+  onEdit, 
+  onBack, 
+  showBackButton = true, 
+  dateRange, 
+  onDateRangeChange, 
+  onExport 
+}) => {
   const [transactions, setTransactions] = useState([]);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(null);
   const [message, setMessage] = useState({ type: '', text: '' });
+  const [showDetails, setShowDetails] = useState(false);
+  const [selectedTransactionId, setSelectedTransactionId] = useState(null);
   
   // Dynamic options - will be populated from actual data
   const [dynamicOptions, setDynamicOptions] = useState({
@@ -45,14 +57,14 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
     currencies: [{ value: '', label: 'All Countries' }]
   });
   
-  // Default to last 30 days instead of just today
+  // Use date range from props or default to last 30 days
   const today = new Date().toISOString().split('T')[0];
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   
   const [filters, setFilters] = useState({
     search: '',
-    startDate: thirtyDaysAgo,
-    endDate: today,
+    startDate: dateRange?.startDate || thirtyDaysAgo,
+    endDate: dateRange?.endDate || today,
     planType: '',
     deviceType: '',
     status: '',
@@ -73,10 +85,28 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
     hasPrev: false
   });
 
+  // Available date range for date picker
+  const [availableDateRange, setAvailableDateRange] = useState({
+    min_date: '2020-01-01',
+    max_date: today
+  });
+
   useEffect(() => {
     fetchTransactions();
     fetchStats();
   }, [filters]);
+
+  // Update filters when dateRange prop changes
+  useEffect(() => {
+    if (dateRange && (dateRange.startDate !== filters.startDate || dateRange.endDate !== filters.endDate)) {
+      setFilters(prev => ({
+        ...prev,
+        startDate: dateRange.startDate,
+        endDate: dateRange.endDate,
+        offset: 0
+      }));
+    }
+  }, [dateRange]);
 
   const showMessage = (type, text) => {
     setMessage({ type, text });
@@ -252,21 +282,32 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
   };
 
   const handleShowAllTransactions = () => {
-    setFilters(prev => ({
-      ...prev,
+    const newFilters = {
+      ...filters,
       startDate: '',
       endDate: '',
       offset: 0
-    }));
+    };
+    setFilters(newFilters);
+    
+    // Notify parent component about date range change
+    if (onDateRangeChange) {
+      onDateRangeChange('', '');
+    }
   };
 
-  const handleTodayTransactions = () => {
+  const handleDateRangeApply = (startDate, endDate) => {
     setFilters(prev => ({
       ...prev,
-      startDate: today,
-      endDate: today,
+      startDate,
+      endDate,
       offset: 0
     }));
+    
+    // Notify parent component about date range change
+    if (onDateRangeChange) {
+      onDateRangeChange(startDate, endDate);
+    }
   };
 
   const handleDelete = async (transactionId) => {
@@ -290,6 +331,81 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
       showMessage('error', 'Error deleting transaction: ' + (error.response?.data?.message || error.message));
     } finally {
       setDeleting(null);
+    }
+  };
+
+  const handleViewDetails = (transactionId) => {
+    setSelectedTransactionId(transactionId);
+    setShowDetails(true);
+  };
+
+  const handleShowDetailsPage = () => {
+    setSelectedTransactionId('all');
+    setShowDetails(true);
+  };
+
+  // NEW: Export functionality
+  const handleExport = async () => {
+    try {
+      console.log('Exporting transaction data...');
+      
+      if (transactions.length === 0) {
+        showMessage('error', 'No data to export');
+        return;
+      }
+
+      // Create CSV content from current transactions
+      const headers = [
+        'ID', 'Transaction ID', 'User ID', 'Amount', 'Currency', 
+        'Local Amount', 'Local Currency', 'Plan Type', 'Device Type', 
+        'Payment Method', 'Status', 'Created At'
+      ];
+
+      const csvData = transactions.map(transaction => [
+        transaction.id,
+        transaction.transaction_id,
+        transaction.user_id,
+        transaction.amount,
+        transaction.currency,
+        transaction.local_amount || '',
+        transaction.local_currency || '',
+        transaction.plan_type,
+        getPlatformName(transaction.device_type),
+        transaction.payment_method,
+        transaction.status,
+        new Date(transaction.created_at).toLocaleString()
+      ]);
+
+      const csvContent = [
+        headers.join(','),
+        ...csvData.map(row => 
+          row.map(field => {
+            // Handle commas and quotes in data
+            const value = String(field || '');
+            if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+              return `"${value.replace(/"/g, '""')}"`;
+            }
+            return value;
+          }).join(',')
+        )
+      ].join('\n');
+
+      // Create and trigger download
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute('download', `transactions_${new Date().toISOString().split('T')[0]}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      showMessage('success', 'Export completed successfully!');
+    } catch (error) {
+      console.error('Export failed:', error);
+      showMessage('error', 'Export failed. Please try again.');
     }
   };
 
@@ -398,13 +514,23 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
     return `${startItem}-${endItem} of ${pagination.total}`;
   };
 
+  if (showDetails) {
+    return (
+      <div style={{ padding: '16px' }}>
+        <TransactionDetails
+          transactionId={selectedTransactionId}
+          onBack={() => setShowDetails(false)}
+        />
+      </div>
+    );
+  }
+
   return (
     <div style={{ 
-      height: '100%', 
-      display: 'flex', 
-      flexDirection: 'column', 
-      overflow: 'hidden',
-      padding: showBackButton ? '16px' : '0'
+      padding: showBackButton ? '16px' : '0',
+      minHeight: '100vh',
+      maxWidth: '100vw',
+      overflowX: 'auto'
     }}>
       {/* Message Display */}
       {message.text && (
@@ -417,8 +543,7 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
           borderRadius: '6px',
           border: `1px solid ${message.type === 'error' ? '#fecaca' : '#bbf7d0'}`,
           background: message.type === 'error' ? '#fef2f2' : '#f0fdf4',
-          color: message.type === 'error' ? '#dc2626' : '#16a34a',
-          flexShrink: 0
+          color: message.type === 'error' ? '#dc2626' : '#16a34a'
         }}>
           {message.type === 'error' ? <AlertCircle size={16} /> : <CheckCircle size={16} />}
           <span style={{ fontSize: '0.875rem', fontWeight: '500' }}>{message.text}</span>
@@ -436,377 +561,447 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
         </div>
       )}
 
-      {/* Enhanced Stats Cards */}
+      {/* UPDATED Stats Cards with consistent box design */}
       {stats && (
         <div style={{ 
           display: 'grid', 
-          gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', 
-          gap: '20px', 
-          paddingBottom: '20px',
-          flexShrink: 0
+          gridTemplateColumns: '1fr 1fr 1fr', 
+          gap: '12px', 
+          marginBottom: '16px'
         }}>
-          {/* Combined Transactions Card */}
+          {/* Transactions Card - New/Repeat/Failed Design */}
           <div style={{ 
             background: 'white', 
-            padding: '20px', 
-            borderRadius: '12px', 
+            padding: '12px', 
+            borderRadius: '8px', 
             border: '1px solid #e2e8f0',
-            boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05)',
-            minHeight: '280px',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+            minHeight: '85px',
             display: 'flex',
             flexDirection: 'column'
           }}>
-            <div style={{ marginBottom: '16px' }}>
+            <div style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'space-between',
+              marginBottom: '8px'
+            }}>
               <div style={{ 
-                fontSize: '1rem', 
+                fontSize: '0.8rem', 
                 fontWeight: '600', 
-                color: '#64748b', 
-                marginBottom: '8px',
-                letterSpacing: '0.025em'
+                color: '#64748b'
               }}>
                 Transactions
               </div>
-              <div style={{ fontSize: '2.25rem', fontWeight: '700', color: '#1f2937', lineHeight: '1' }}>
+              <div style={{ fontSize: '1.25rem', fontWeight: '700', color: '#1f2937' }}>
                 {formatNumber(stats.overview.total_transactions)}
               </div>
             </div>
             
-            <div style={{ marginBottom: '12px' }}>
-              <div style={{ 
-                fontSize: '0.875rem', 
-                color: '#ef4444', 
-                fontWeight: '600',
-                background: '#fef2f2',
-                padding: '4px 8px',
-                borderRadius: '4px',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '8px'
-              }}>
-                Failed
-                <span style={{ fontSize: '1rem', fontWeight: '700', color: '#1f2937' }}>
-                  {formatNumber(stats.overview.failed_transactions)} ({formatPercentage(stats.overview.failure_rate)})
-                </span>
-              </div>
-            </div>
-
             <div style={{ 
-              borderTop: '2px dashed #e2e8f0', 
-              paddingTop: '16px',
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              gap: '16px',
+              display: 'grid', 
+              gridTemplateColumns: '1fr 1fr 1fr', 
+              gap: '1px',
+              padding: '4px',
+              background: '#f8fafc',
+              borderRadius: '4px',
               flex: 1
             }}>
-              <div>
+              {/* New Transactions */}
+              <div style={{ 
+                padding: '6px 4px',
+                background: 'white',
+                borderRadius: '3px'
+              }}>
                 <div style={{ 
-                  fontSize: '0.875rem', 
+                  fontSize: '0.65rem', 
                   fontWeight: '600', 
                   color: '#3b82f6',
-                  marginBottom: '8px',
-                  background: '#eff6ff',
-                  padding: '4px 8px',
-                  borderRadius: '4px',
-                  display: 'inline-block'
+                  marginBottom: '2px',
+                  textAlign: 'center'
                 }}>
                   New
                 </div>
-                <div style={{ fontSize: '1.5rem', fontWeight: '700', color: '#1f2937', marginBottom: '4px', marginTop: '8px' }}>
+                <div style={{ 
+                  fontSize: '1rem', 
+                  fontWeight: '700', 
+                  color: '#1f2937',
+                  textAlign: 'center'
+                }}>
                   {formatNumber(stats.customer_type?.new_transactions || 0)}
                 </div>
               </div>
               
-              <div>
+              {/* Repeat Transactions */}
+              <div style={{ 
+                padding: '6px 4px',
+                background: 'white',
+                borderRadius: '3px'
+              }}>
                 <div style={{ 
-                  fontSize: '0.875rem', 
+                  fontSize: '0.65rem', 
                   fontWeight: '600', 
                   color: '#8b5cf6',
-                  marginBottom: '8px',
-                  background: '#faf5ff',
-                  padding: '4px 8px',
-                  borderRadius: '4px',
-                  display: 'inline-block'
+                  marginBottom: '2px',
+                  textAlign: 'center'
                 }}>
                   Repeat
                 </div>
-                <div style={{ fontSize: '1.5rem', fontWeight: '700', color: '#1f2937', marginBottom: '4px', marginTop: '8px' }}>
+                <div style={{ 
+                  fontSize: '1rem', 
+                  fontWeight: '700', 
+                  color: '#1f2937',
+                  textAlign: 'center'
+                }}>
                   {formatNumber(stats.customer_type?.repeat_transactions || 0)}
                 </div>
-                <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>
-                  {formatNumber(stats.customer_type?.unique_repeat_users || 0)} users
+              </div>
+              
+              {/* Failed Transactions */}
+              <div style={{ 
+                padding: '6px 4px',
+                background: 'white',
+                borderRadius: '3px'
+              }}>
+                <div style={{ 
+                  fontSize: '0.65rem', 
+                  fontWeight: '600', 
+                  color: '#ef4444',
+                  marginBottom: '2px',
+                  textAlign: 'center'
+                }}>
+                  Failed
+                </div>
+                <div style={{ 
+                  fontSize: '1rem', 
+                  fontWeight: '700', 
+                  color: '#1f2937',
+                  textAlign: 'center'
+                }}>
+                  {formatNumber(stats.overview.failed_transactions || 0)}
+                </div>
+                <div style={{ fontSize: '0.55rem', color: '#ef4444', textAlign: 'center', lineHeight: '1' }}>
+                  {formatPercentage(stats.overview.failure_rate)}
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Enhanced Revenue Card with Platform Breakdown */}
+          {/* Revenue Card - Box design with Android/iOS/Web */}
           <div style={{ 
             background: 'white', 
-            padding: '20px', 
-            borderRadius: '12px', 
+            padding: '12px', 
+            borderRadius: '8px', 
             border: '1px solid #e2e8f0',
-            boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05)',
-            minHeight: '280px',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+            minHeight: '85px',
             display: 'flex',
             flexDirection: 'column'
           }}>
-            <div style={{ marginBottom: '16px' }}>
+            <div style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'space-between',
+              marginBottom: '8px'
+            }}>
               <div style={{ 
-                fontSize: '1rem', 
-                fontWeight: '600', 
-                color: '#64748b', 
-                marginBottom: '8px',
-                letterSpacing: '0.025em'
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px'
               }}>
-                Revenue
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-                <div style={{ fontSize: '2.25rem', fontWeight: '700', color: '#1f2937', lineHeight: '1' }}>
-                  {formatCurrency(stats.overview.total_revenue)}
+                <div style={{ 
+                  fontSize: '0.8rem', 
+                  fontWeight: '600', 
+                  color: '#64748b'
+                }}>
+                  Revenue
                 </div>
                 {stats.growth && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
                     {stats.growth.is_revenue_growth_positive ? (
-                      <TrendingUp size={16} style={{ color: '#10b981' }} />
+                      <TrendingUp size={12} style={{ color: '#10b981' }} />
                     ) : (
-                      <TrendingDown size={16} style={{ color: '#ef4444' }} />
+                      <TrendingDown size={12} style={{ color: '#ef4444' }} />
                     )}
                     <span style={{ 
-                      fontSize: '0.875rem', 
+                      fontSize: '0.65rem', 
                       fontWeight: '600',
                       color: stats.growth.is_revenue_growth_positive ? '#10b981' : '#ef4444'
                     }}>
-                      ({Math.abs(stats.growth.revenue_growth_30d)}% vs last 30d)
+                      ({Math.abs(stats.growth.revenue_growth_30d)}%)
                     </span>
                   </div>
                 )}
               </div>
+              <div style={{ fontSize: '1.25rem', fontWeight: '700', color: '#1f2937' }}>
+                {formatCurrency(stats.overview.total_revenue)}
+              </div>
             </div>
 
             <div style={{ 
-              borderTop: '2px dashed #e2e8f0', 
-              paddingTop: '16px',
+              display: 'grid', 
+              gridTemplateColumns: '1fr 1fr 1fr', 
+              gap: '1px',
+              padding: '4px',
+              background: '#f8fafc',
+              borderRadius: '4px',
               flex: 1
             }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '24px', marginBottom: '16px' }}>
-                {stats.by_platform.map((platform, index) => {
-                  const colors = [
-                    { bg: '#f0fdf4', text: '#10b981' }, // Android - green
-                    { bg: '#f8fafc', text: '#64748b' }, // iOS - gray  
-                    { bg: '#fef3c7', text: '#f59e0b' }  // Other - yellow
-                  ];
-                  return (
-                    <div key={platform.device_type}>
-                      <div style={{ 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        justifyContent: 'center', 
-                        gap: '4px',
-                        marginBottom: '12px',
-                        background: colors[index].bg,
-                        padding: '8px 12px',
-                        borderRadius: '6px',
-                        fontWeight: '600',
-                        fontSize: '0.875rem',
-                        color: colors[index].text
-                      }}>
-                        {getPlatformIcon(platform.device_type)}
-                        {platform.platform_name}
-                      </div>
-                      <div style={{ 
-                        fontSize: '1.25rem', 
-                        fontWeight: '700', 
-                        color: '#1f2937',
-                        textAlign: 'center',
-                        marginBottom: '4px'
-                      }}>
-                        {formatCurrency(platform.revenue)}
-                      </div>
+              {stats.by_platform.map((platform, index) => {
+                const colors = [
+                  { color: '#10b981' }, // Android - Green
+                  { color: '#64748b' }, // iOS - Gray  
+                  { color: '#3b82f6' }  // Web/Other - Blue
+                ];
+                return (
+                  <div key={platform.device_type} style={{ 
+                    padding: '6px 4px',
+                    background: 'white',
+                    borderRadius: '3px'
+                  }}>
+                    <div style={{ 
+                      fontSize: '0.65rem', 
+                      fontWeight: '600', 
+                      color: colors[index]?.color || '#6b7280', 
+                      marginBottom: '2px',
+                      textAlign: 'center',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '2px'
+                    }}>
+                      {getPlatformIcon(platform.device_type)}
+                      {platform.platform_name}
                     </div>
-                  );
-                })}
-              </div>
-              
-              <div style={{ 
-                borderTop: '1px solid #f1f5f9', 
-                paddingTop: '12px',
-                textAlign: 'center'
-              }}>
-                <div style={{ 
-                  fontSize: '0.875rem',
-                  color: '#6b7280',
-                  fontWeight: '500',
-                  marginBottom: '8px'
-                }}>
-                  Transactions
-                </div>
-                <div style={{ 
-                  display: 'grid', 
-                  gridTemplateColumns: '1fr 1fr 1fr', 
-                  gap: '24px',
-                  fontSize: '1rem',
-                  fontWeight: '600',
-                  color: '#1f2937'
-                }}>
-                  {stats.by_platform.map((platform) => (
-                    <div key={platform.device_type} style={{ textAlign: 'center' }}>
-                      {formatNumber(platform.count)}
+                    <div style={{ 
+                      fontSize: '0.9rem', 
+                      fontWeight: '700', 
+                      color: '#1f2937',
+                      textAlign: 'center',
+                      marginBottom: '1px'
+                    }}>
+                      {formatCurrency(platform.revenue)}
                     </div>
-                  ))}
-                </div>
-              </div>
+                    {/* FIXED: Use platform.count instead of platform.transaction_count */}
+                    <div style={{ 
+                      fontSize: '0.55rem', 
+                      color: '#6b7280',
+                      textAlign: 'center',
+                      lineHeight: '1'
+                    }}>
+                      {formatNumber(platform.count || 0)} txns
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
-          {/* Plan Type Breakdown - Reduced spacing */}
+          {/* Plan Type Breakdown - Box design like transactions */}
           {stats.plan_breakdown && (
             <div style={{ 
               background: 'white', 
-              padding: '20px', 
-              borderRadius: '12px', 
+              padding: '12px', 
+              borderRadius: '8px', 
               border: '1px solid #e2e8f0', 
-              boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05)',
-              gridColumn: 'span 2',
-              minHeight: '280px'
+              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+              minHeight: '85px',
+              display: 'flex',
+              flexDirection: 'column'
             }}>
               <div style={{ 
                 display: 'flex', 
                 alignItems: 'center', 
-                gap: '8px', 
-                marginBottom: '16px' 
+                justifyContent: 'space-between',
+                marginBottom: '8px'
               }}>
-                <Package size={16} style={{ color: '#f59e0b' }} />
-                <span style={{ 
-                  fontSize: '1rem', 
-                  fontWeight: '600', 
-                  color: '#64748b',
-                  letterSpacing: '0.025em'
+                <div style={{ 
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px'
                 }}>
-                  Plan Types
-                </span>
+                  <Package size={12} style={{ color: '#f59e0b' }} />
+                  <span style={{ 
+                    fontSize: '0.8rem', 
+                    fontWeight: '600', 
+                    color: '#64748b'
+                  }}>
+                    Plan Types
+                  </span>
+                </div>
+                <div style={{ fontSize: '1.25rem', fontWeight: '700', color: '#1f2937' }}>
+                  {formatNumber(
+                    (stats.plan_breakdown.monthly_count || 0) +
+                    (stats.plan_breakdown.half_yearly_count || 0) +
+                    (stats.plan_breakdown.yearly_count || 0) +
+                    (stats.plan_breakdown.astro_report_count || 0)
+                  )}
+                </div>
               </div>
               
-              {/* Three columns layout - reduced gaps further */}
               <div style={{ 
                 display: 'grid', 
-                gridTemplateColumns: '1fr 1fr 1fr', 
-                gap: '6px', 
-                padding: '12px',
+                gridTemplateColumns: '1fr 1fr 1fr 1fr', 
+                gap: '1px', 
+                padding: '4px',
                 background: '#f8fafc',
-                borderRadius: '8px'
+                borderRadius: '4px',
+                flex: 1
               }}>
                 {/* Monthly */}
-                <div>
+                <div style={{ 
+                  padding: '4px 2px',
+                  background: 'white',
+                  borderRadius: '3px'
+                }}>
                   <div style={{ 
-                    fontSize: '1rem', 
+                    fontSize: '0.6rem', 
                     fontWeight: '600', 
                     color: '#3b82f6', 
-                    marginBottom: '6px',
-                    background: '#eff6ff',
-                    padding: '4px 8px',
-                    borderRadius: '4px',
-                    display: 'inline-block'
+                    marginBottom: '2px',
+                    textAlign: 'center'
                   }}>
                     Monthly
                   </div>
-                  <div style={{ fontSize: '1.5rem', fontWeight: '700', color: '#1f2937', marginBottom: '6px', marginTop: '8px' }}>
+                  <div style={{ 
+                    fontSize: '0.9rem', 
+                    fontWeight: '700', 
+                    color: '#1f2937', 
+                    marginBottom: '1px',
+                    textAlign: 'center'
+                  }}>
                     {formatNumber(stats.plan_breakdown.monthly_count || 0)}
                   </div>
-                  <div style={{ fontSize: '0.875rem', color: '#6b7280', marginBottom: '2px' }}>
-                    {formatNumber(stats.plan_breakdown.monthly_user_breakdown?.repeat_transactions || 0)} repeat
-                  </div>
-                  <div style={{ fontSize: '0.875rem', color: '#6b7280' }}>
-                    {formatNumber(stats.plan_breakdown.monthly_user_breakdown?.unique_repeat_users || 0)} unique
+                  {/* FIXED: Calculate total unique users */}
+                  <div style={{ fontSize: '0.55rem', color: '#6b7280', textAlign: 'center', lineHeight: '1' }}>
+                    {formatNumber(
+                      (stats.plan_breakdown.monthly_user_breakdown?.unique_new_users || 0) +
+                      (stats.plan_breakdown.monthly_user_breakdown?.unique_repeat_users || 0)
+                    )} users
                   </div>
                 </div>
 
                 {/* Half Yearly */}
-                <div>
+                <div style={{ 
+                  padding: '4px 2px',
+                  background: 'white',
+                  borderRadius: '3px'
+                }}>
                   <div style={{ 
-                    fontSize: '1rem', 
+                    fontSize: '0.6rem', 
                     fontWeight: '600', 
                     color: '#8b5cf6', 
-                    marginBottom: '6px',
-                    background: '#faf5ff',
-                    padding: '4px 8px',
-                    borderRadius: '4px',
-                    display: 'inline-block'
+                    marginBottom: '2px',
+                    textAlign: 'center'
                   }}>
                     Half Yearly
                   </div>
-                  <div style={{ fontSize: '1.5rem', fontWeight: '700', color: '#1f2937', marginBottom: '6px', marginTop: '8px' }}>
+                  <div style={{ 
+                    fontSize: '0.9rem', 
+                    fontWeight: '700', 
+                    color: '#1f2937', 
+                    marginBottom: '1px',
+                    textAlign: 'center'
+                  }}>
                     {formatNumber(stats.plan_breakdown.half_yearly_count || 0)}
                   </div>
-                  <div style={{ fontSize: '0.875rem', color: '#6b7280', marginBottom: '2px' }}>
-                    {formatNumber(stats.plan_breakdown.half_yearly_user_breakdown?.repeat_transactions || 0)} repeat
-                  </div>
-                  <div style={{ fontSize: '0.875rem', color: '#6b7280' }}>
-                    {formatNumber(stats.plan_breakdown.half_yearly_user_breakdown?.unique_repeat_users || 0)} unique
+                  {/* FIXED: Calculate total unique users */}
+                  <div style={{ fontSize: '0.55rem', color: '#6b7280', textAlign: 'center', lineHeight: '1' }}>
+                    {formatNumber(
+                      (stats.plan_breakdown.half_yearly_user_breakdown?.unique_new_users || 0) +
+                      (stats.plan_breakdown.half_yearly_user_breakdown?.unique_repeat_users || 0)
+                    )} users
                   </div>
                 </div>
 
                 {/* Yearly */}
-                <div>
+                <div style={{ 
+                  padding: '4px 2px',
+                  background: 'white',
+                  borderRadius: '3px'
+                }}>
                   <div style={{ 
-                    fontSize: '1rem', 
+                    fontSize: '0.6rem', 
                     fontWeight: '600', 
                     color: '#10b981', 
-                    marginBottom: '6px',
-                    background: '#f0fdf4',
-                    padding: '4px 8px',
-                    borderRadius: '4px',
-                    display: 'inline-block'
+                    marginBottom: '2px',
+                    textAlign: 'center'
                   }}>
                     Yearly
                   </div>
-                  <div style={{ fontSize: '1.5rem', fontWeight: '700', color: '#1f2937', marginBottom: '6px', marginTop: '8px' }}>
+                  <div style={{ 
+                    fontSize: '0.9rem', 
+                    fontWeight: '700', 
+                    color: '#1f2937', 
+                    marginBottom: '1px',
+                    textAlign: 'center'
+                  }}>
                     {formatNumber(stats.plan_breakdown.yearly_count || 0)}
                   </div>
-                  <div style={{ fontSize: '0.875rem', color: '#6b7280', marginBottom: '2px' }}>
-                    {formatNumber(stats.plan_breakdown.yearly_user_breakdown?.repeat_transactions || 0)} repeat
-                  </div>
-                  <div style={{ fontSize: '0.875rem', color: '#6b7280' }}>
-                    {formatNumber(stats.plan_breakdown.yearly_user_breakdown?.unique_repeat_users || 0)} unique
+                  {/* FIXED: Calculate total unique users */}
+                  <div style={{ fontSize: '0.55rem', color: '#6b7280', textAlign: 'center', lineHeight: '1' }}>
+                    {formatNumber(
+                      (stats.plan_breakdown.yearly_user_breakdown?.unique_new_users || 0) +
+                      (stats.plan_breakdown.yearly_user_breakdown?.unique_repeat_users || 0)
+                    )} users
                   </div>
                 </div>
-              </div>
 
-              <div style={{ 
-                fontSize: '0.875rem', 
-                color: '#6b7280', 
-                borderTop: '1px solid #e2e8f0', 
-                paddingTop: '12px', 
-                marginTop: '16px',
-                fontWeight: '500',
-                textAlign: 'center'
-              }}>
-                Total Revenue: {formatCurrency(stats.plan_breakdown.total_revenue || 0)}
+                {/* Astro Report */}
+                <div style={{ 
+                  padding: '4px 2px',
+                  background: 'white',
+                  borderRadius: '3px'
+                }}>
+                  <div style={{ 
+                    fontSize: '0.6rem', 
+                    fontWeight: '600', 
+                    color: '#f59e0b', 
+                    marginBottom: '2px',
+                    textAlign: 'center'
+                  }}>
+                    Astro Report
+                  </div>
+                  <div style={{ 
+                    fontSize: '0.9rem', 
+                    fontWeight: '700', 
+                    color: '#1f2937', 
+                    marginBottom: '1px',
+                    textAlign: 'center'
+                  }}>
+                    {formatNumber(stats.plan_breakdown.astro_report_count || 0)}
+                  </div>
+                  {/* FIXED: Calculate total unique users */}
+                  <div style={{ fontSize: '0.55rem', color: '#6b7280', textAlign: 'center', lineHeight: '1' }}>
+                    {formatNumber(
+                      (stats.plan_breakdown.astro_report_user_breakdown?.unique_new_users || 0) +
+                      (stats.plan_breakdown.astro_report_user_breakdown?.unique_repeat_users || 0)
+                    )} users
+                  </div>
+                </div>
               </div>
             </div>
           )}
         </div>
       )}
 
-      {/* Filters Section */}
-      <div style={{ 
-        paddingBottom: '16px', 
-        flexShrink: 0
-      }}>
-        {/* Main Filters Row */}
+      {/* Filters Section - Compact */}
+      <div style={{ marginBottom: '12px' }}>
         <div style={{
-          display: 'grid',
-          gridTemplateColumns: '250px 120px 120px 120px 120px 120px 100px 100px',
-          gap: '12px',
-          padding: '16px',
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: '6px',
+          padding: '12px',
           background: 'white',
           border: '1px solid #e2e8f0',
-          borderRadius: '8px'
+          borderRadius: '6px',
+          alignItems: 'center'
         }}>
           {/* Search Box */}
-          <div style={{ position: 'relative' }}>
-            <Search size={16} style={{ 
+          <div style={{ position: 'relative', minWidth: '180px', flex: '1 1 180px' }}>
+            <Search size={14} style={{ 
               position: 'absolute', 
-              left: '12px', 
+              left: '10px', 
               top: '50%', 
               transform: 'translateY(-50%)', 
               color: '#64748b' 
@@ -818,10 +1013,10 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
               onChange={(e) => handleFilterChange('search', e.target.value)}
               style={{
                 width: '100%',
-                padding: '8px 12px 8px 36px',
+                padding: '6px 10px 6px 30px',
                 border: '1px solid #e2e8f0',
-                borderRadius: '6px',
-                fontSize: '0.875rem'
+                borderRadius: '4px',
+                fontSize: '0.8rem'
               }}
             />
           </div>
@@ -831,10 +1026,11 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
             value={filters.paymentMethod}
             onChange={(e) => handleFilterChange('paymentMethod', e.target.value)}
             style={{
-              padding: '8px 12px',
+              padding: '6px 10px',
               border: '1px solid #e2e8f0',
-              borderRadius: '6px',
-              fontSize: '0.875rem'
+              borderRadius: '4px',
+              fontSize: '0.8rem',
+              minWidth: '90px'
             }}
           >
             {dynamicOptions.paymentMethods.map(option => (
@@ -847,10 +1043,11 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
             value={filters.localCurrency}
             onChange={(e) => handleFilterChange('localCurrency', e.target.value)}
             style={{
-              padding: '8px 12px',
+              padding: '6px 10px',
               border: '1px solid #e2e8f0',
-              borderRadius: '6px',
-              fontSize: '0.875rem'
+              borderRadius: '4px',
+              fontSize: '0.8rem',
+              minWidth: '90px'
             }}
           >
             {dynamicOptions.currencies.map(option => (
@@ -863,10 +1060,11 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
             value={filters.deviceType}
             onChange={(e) => handleFilterChange('deviceType', e.target.value)}
             style={{
-              padding: '8px 12px',
+              padding: '6px 10px',
               border: '1px solid #e2e8f0',
-              borderRadius: '6px',
-              fontSize: '0.875rem'
+              borderRadius: '4px',
+              fontSize: '0.8rem',
+              minWidth: '90px'
             }}
           >
             {dynamicOptions.deviceTypes.map(option => (
@@ -879,10 +1077,11 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
             value={filters.status}
             onChange={(e) => handleFilterChange('status', e.target.value)}
             style={{
-              padding: '8px 12px',
+              padding: '6px 10px',
               border: '1px solid #e2e8f0',
-              borderRadius: '6px',
-              fontSize: '0.875rem'
+              borderRadius: '4px',
+              fontSize: '0.8rem',
+              minWidth: '90px'
             }}
           >
             {dynamicOptions.statusOptions.map(option => (
@@ -895,16 +1094,36 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
             value={filters.planType}
             onChange={(e) => handleFilterChange('planType', e.target.value)}
             style={{
-              padding: '8px 12px',
+              padding: '6px 10px',
               border: '1px solid #e2e8f0',
-              borderRadius: '6px',
-              fontSize: '0.875rem'
+              borderRadius: '4px',
+              fontSize: '0.8rem',
+              minWidth: '90px'
             }}
           >
             {dynamicOptions.planTypes.map(option => (
               <option key={option.value} value={option.value}>{option.label}</option>
             ))}
           </select>
+
+          {/* Export Button */}
+          {(onExport || handleExport) && (
+            <button 
+              onClick={onExport || handleExport}
+              className="btn-primary"
+              style={{ 
+                fontSize: '0.75rem', 
+                padding: '5px 10px', 
+                whiteSpace: 'nowrap',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}
+            >
+              <Download size={12} />
+              Export
+            </button>
+          )}
 
           {/* Clear Filters */}
           <button 
@@ -919,7 +1138,7 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
               offset: 0 
             }))}
             className="btn-secondary"
-            style={{ fontSize: '0.8rem', padding: '6px 10px' }}
+            style={{ fontSize: '0.75rem', padding: '5px 8px', whiteSpace: 'nowrap' }}
           >
             Clear
           </button>
@@ -928,87 +1147,9 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
           <button 
             onClick={handleShowAllTransactions}
             className="btn-secondary"
-            style={{ fontSize: '0.8rem', padding: '6px 12px' }}
+            style={{ fontSize: '0.75rem', padding: '5px 10px', whiteSpace: 'nowrap' }}
           >
             Show All
-          </button>
-        </div>
-
-        {/* Date Range Filters with Quick Action Buttons */}
-        <div style={{ 
-          display: 'flex', 
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '12px', 
-          marginTop: '12px'
-        }}>
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-            <input
-              type="date"
-              value={filters.startDate}
-              onChange={(e) => handleFilterChange('startDate', e.target.value)}
-              style={{
-                padding: '6px 10px',
-                border: '1px solid #e2e8f0',
-                borderRadius: '6px',
-                fontSize: '0.875rem'
-              }}
-            />
-            
-            <input
-              type="date"
-              value={filters.endDate}
-              onChange={(e) => handleFilterChange('endDate', e.target.value)}
-              style={{
-                padding: '6px 10px',
-                border: '1px solid #e2e8f0',
-                borderRadius: '6px',
-                fontSize: '0.875rem'
-              }}
-            />
-
-            {/* Quick Action Buttons */}
-            <button 
-              onClick={handleTodayTransactions}
-              className="btn-secondary"
-              style={{ fontSize: '0.75rem', padding: '6px 10px' }}
-            >
-              Today's Transactions
-            </button>
-            <button 
-              onClick={() => setFilters(prev => ({ 
-                ...prev, 
-                startDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-                endDate: today,
-                offset: 0 
-              }))}
-              className="btn-secondary"
-              style={{ fontSize: '0.75rem', padding: '6px 10px' }}
-            >
-              Last 7 Days
-            </button>
-            <button 
-              onClick={() => setFilters(prev => ({ 
-                ...prev, 
-                startDate: thirtyDaysAgo,
-                endDate: today,
-                offset: 0 
-              }))}
-              className="btn-secondary"
-              style={{ fontSize: '0.75rem', padding: '6px 10px' }}
-            >
-              Last 30 Days
-            </button>
-          </div>
-
-          <button 
-            onClick={fetchTransactions}
-            className="btn-primary"
-            disabled={loading}
-            style={{ fontSize: '0.8rem', padding: '6px 12px' }}
-          >
-            <RefreshCw size={14} />
-            <span>Refresh</span>
           </button>
         </div>
       </div>
@@ -1016,13 +1157,12 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
       {/* Date Range Info */}
       {(filters.startDate || filters.endDate) && (
         <div style={{ 
-          padding: '8px 16px', 
-          fontSize: '0.875rem', 
+          padding: '6px 12px', 
+          fontSize: '0.8rem', 
           color: '#3b82f6', 
           background: '#eff6ff',
-          borderRadius: '6px',
-          marginBottom: '16px',
-          flexShrink: 0
+          borderRadius: '4px',
+          marginBottom: '12px'
         }}>
           {filters.startDate && filters.endDate ? 
             `Showing transactions from ${new Date(filters.startDate).toLocaleDateString()} to ${new Date(filters.endDate).toLocaleDateString()}` :
@@ -1035,27 +1175,24 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
 
       {/* Data Table Container */}
       <div style={{ 
-        flex: 1,
         background: 'white', 
         border: '1px solid #e2e8f0', 
-        borderRadius: '8px', 
+        borderRadius: '6px', 
         overflow: 'hidden',
-        display: 'flex',
-        flexDirection: 'column',
-        minHeight: 0
+        overflowX: 'auto'
       }}>
         {/* Table Header */}
         <div style={{
           display: 'grid',
-          gridTemplateColumns: '60px 140px 120px 100px 100px 80px 100px 80px 80px 100px 80px',
-          gap: '12px',
-          padding: '16px',
+          gridTemplateColumns: '60px 140px 120px 100px 100px 80px 100px 80px 80px 100px 100px',
+          gap: '10px',
+          padding: '12px',
           background: '#f8fafc',
           borderBottom: '1px solid #e2e8f0',
-          fontSize: '0.875rem',
+          fontSize: '0.8rem',
           fontWeight: '600',
           color: '#475569',
-          flexShrink: 0
+          minWidth: '1100px'
         }}>
           <div>ID</div>
           <div>Transaction ID</div>
@@ -1071,22 +1208,18 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
         </div>
 
         {/* Table Content */}
-        <div style={{ 
-          flex: 1, 
-          overflowY: 'auto',
-          minHeight: 0
-        }}>
+        <div style={{ maxHeight: '500px', overflowY: 'auto' }}>
           {loading ? (
             <div style={{ 
               display: 'flex', 
               alignItems: 'center', 
               justifyContent: 'center', 
-              height: '200px',
+              height: '150px',
               flexDirection: 'column',
-              gap: '12px'
+              gap: '10px'
             }}>
               <div className="loading-spinner"></div>
-              <span style={{ color: '#64748b' }}>Loading transactions...</span>
+              <span style={{ color: '#64748b', fontSize: '0.8rem' }}>Loading transactions...</span>
             </div>
           ) : transactions.length > 0 ? (
             transactions.map((transaction) => (
@@ -1094,12 +1227,13 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
                 key={transaction.id}
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: '60px 140px 120px 100px 100px 80px 100px 80px 80px 100px 80px',
-                  gap: '12px',
-                  padding: '16px',
+                  gridTemplateColumns: '60px 140px 120px 100px 100px 80px 100px 80px 80px 100px 100px',
+                  gap: '10px',
+                  padding: '10px 12px',
                   borderBottom: '1px solid #f1f5f9',
-                  fontSize: '0.875rem',
-                  alignItems: 'center'
+                  fontSize: '0.8rem',
+                  alignItems: 'center',
+                  minWidth: '1100px'
                 }}
               >
                 <div style={{ fontWeight: '600', color: '#3b82f6' }}>
@@ -1108,7 +1242,7 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
                 
                 <div style={{ 
                   fontFamily: 'monospace', 
-                  fontSize: '0.75rem',
+                  fontSize: '0.7rem',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap'
@@ -1118,7 +1252,7 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
                 
                 <div style={{ 
                   fontFamily: 'monospace', 
-                  fontSize: '0.75rem',
+                  fontSize: '0.7rem',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap'
@@ -1131,7 +1265,7 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
                     {formatCurrency(transaction.amount, transaction.currency)}
                   </div>
                   {transaction.local_amount && transaction.local_currency !== transaction.currency && (
-                    <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>
+                    <div style={{ fontSize: '0.7rem', color: '#6b7280' }}>
                       {formatCurrency(transaction.local_amount, transaction.local_currency)}
                     </div>
                   )}
@@ -1141,9 +1275,9 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
                   <span style={{ 
                     background: '#dbeafe', 
                     color: '#1e40af', 
-                    padding: '2px 6px', 
-                    borderRadius: '4px', 
-                    fontSize: '0.75rem',
+                    padding: '1px 4px', 
+                    borderRadius: '3px', 
+                    fontSize: '0.7rem',
                     fontWeight: '600',
                     textTransform: 'capitalize'
                   }}>
@@ -1151,59 +1285,67 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
                   </span>
                 </div>
                 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
                   {getPlatformIcon(transaction.device_type)}
-                  <span style={{ fontSize: '0.75rem' }}>{getPlatformName(transaction.device_type)}</span>
+                  <span style={{ fontSize: '0.7rem' }}>{getPlatformName(transaction.device_type)}</span>
                 </div>
                 
-                <div style={{ fontSize: '0.75rem' }}>
+                <div style={{ fontSize: '0.7rem' }}>
                   {transaction.payment_method?.replace('_', ' ')}
                 </div>
                 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
                   {getStatusIcon(transaction.status)}
                   <span style={{ 
                     color: getStatusColor(transaction.status), 
                     fontWeight: '600',
-                    fontSize: '0.75rem',
+                    fontSize: '0.7rem',
                     textTransform: 'capitalize'
                   }}>
                     {transaction.status}
                   </span>
                 </div>
                 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <Globe size={10} style={{ color: '#6b7280' }} />
-                  <span style={{ fontSize: '0.75rem', fontWeight: '600' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                  <Globe size={9} style={{ color: '#6b7280' }} />
+                  <span style={{ fontSize: '0.7rem', fontWeight: '600' }}>
                     {transaction.local_currency || transaction.currency}
                   </span>
                 </div>
                 
-                <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>
+                <div style={{ fontSize: '0.7rem', color: '#6b7280' }}>
                   {formatDate(transaction.created_at)}
                 </div>
                 
                 <div className="text-center">
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '3px' }}>
+                    <button 
+                      onClick={() => handleViewDetails(transaction.id)}
+                      className="btn-icon"
+                      style={{ padding: '3px' }}
+                      title="View Details"
+                    >
+                      <Eye size={11} />
+                    </button>
                     <button 
                       onClick={() => onEdit && onEdit(transaction.id)}
                       className="btn-icon"
-                      style={{ padding: '4px' }}
+                      style={{ padding: '3px' }}
                       title="Edit Transaction"
                     >
-                      <Edit2 size={12} />
+                      <Edit2 size={11} />
                     </button>
                     <button 
                       onClick={() => handleDelete(transaction.id)}
                       className="btn-icon"
-                      style={{ padding: '4px', color: '#ef4444' }}
+                      style={{ padding: '3px', color: '#ef4444' }}
                       disabled={deleting === transaction.id}
                       title="Delete Transaction"
                     >
                       {deleting === transaction.id ? (
-                        <div className="loading-spinner" style={{ width: '12px', height: '12px' }}></div>
+                        <div className="loading-spinner" style={{ width: '11px', height: '11px' }}></div>
                       ) : (
-                        <Trash2 size={12} />
+                        <Trash2 size={11} />
                       )}
                     </button>
                   </div>
@@ -1213,18 +1355,17 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
           ) : (
             <div style={{ 
               textAlign: 'center', 
-              padding: '80px 20px',
+              padding: '60px 20px',
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
-              justifyContent: 'center',
-              height: '100%'
+              justifyContent: 'center'
             }}>
-              <CreditCard size={48} style={{ color: '#cbd5e1', marginBottom: '16px' }} />
-              <h3 style={{ fontSize: '1.125rem', fontWeight: '600', color: '#374155', margin: '0 0 8px 0' }}>
+              <CreditCard size={40} style={{ color: '#cbd5e1', marginBottom: '12px' }} />
+              <h3 style={{ fontSize: '1rem', fontWeight: '600', color: '#374155', margin: '0 0 6px 0' }}>
                 No Transactions Found
               </h3>
-              <p style={{ color: '#64748b', margin: '0' }}>
+              <p style={{ color: '#64748b', margin: '0', fontSize: '0.8rem' }}>
                 {Object.values(filters).some(v => v && v !== '') 
                   ? 'No transactions match your current filters. Try clearing filters or adjusting your search criteria.'
                   : 'No transaction data available.'
@@ -1234,27 +1375,26 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
           )}
         </div>
 
-        {/* Pagination */}
+        {/* Compact Pagination */}
         <div style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'flex-end',
-          padding: '12px 16px',
+          padding: '8px 12px',
           borderTop: '1px solid #e2e8f0',
           background: 'white',
-          gap: '16px',
-          flexShrink: 0
+          gap: '12px'
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '0.875rem', color: '#64748b' }}>Rows per page:</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ fontSize: '0.8rem', color: '#64748b' }}>Rows per page:</span>
             <select
               value={filters.limit}
               onChange={(e) => handleRowsPerPageChange(parseInt(e.target.value))}
               style={{
-                padding: '6px 8px',
+                padding: '4px 6px',
                 border: '1px solid #e2e8f0',
-                borderRadius: '4px',
-                fontSize: '0.875rem',
+                borderRadius: '3px',
+                fontSize: '0.8rem',
                 background: 'white'
               }}
             >
@@ -1265,16 +1405,16 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
             </select>
           </div>
 
-          <div style={{ fontSize: '0.875rem', color: '#64748b' }}>
+          <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
             {getDisplayedRange()}
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <button 
               onClick={() => handlePageChange(pagination.currentPage - 1)}
               disabled={!pagination.hasPrev}
               style={{
-                padding: '6px',
+                padding: '4px',
                 border: 'none',
                 background: 'transparent',
                 cursor: !pagination.hasPrev ? 'not-allowed' : 'pointer',
@@ -1283,14 +1423,14 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
                 alignItems: 'center'
               }}
             >
-              <ChevronLeft size={16} color="#64748b" />
+              <ChevronLeft size={14} color="#64748b" />
             </button>
             
             <button 
               onClick={() => handlePageChange(pagination.currentPage + 1)}
               disabled={!pagination.hasNext}
               style={{
-                padding: '6px',
+                padding: '4px',
                 border: 'none',
                 background: 'transparent',
                 cursor: !pagination.hasNext ? 'not-allowed' : 'pointer',
@@ -1299,7 +1439,7 @@ const TransactionList = ({ onEdit, onBack, showBackButton = true }) => {
                 alignItems: 'centers'
               }}
             >
-              <ChevronRight size={16} color="#64748b" />
+              <ChevronRight size={14} color="#64748b" />
             </button>
           </div>
         </div>

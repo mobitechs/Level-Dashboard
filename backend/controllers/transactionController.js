@@ -1,5 +1,5 @@
-const pool = require('../config/level_database');
-
+// const pool = require('../config/level_database');
+const pool = require('../config/database');
 const getTransactionStats = async (req, res) => {
   try {
     const {
@@ -107,13 +107,14 @@ const getTransactionStats = async (req, res) => {
       ORDER BY count DESC
     `, params);
 
-    // 5. Plan Type with Repeat/New User Breakdown
+    // 5. Plan Type with Repeat/New User Breakdown - UPDATED to include astro_report
     const [planTypeUserBreakdown] = await pool.execute(`
       SELECT 
         CASE 
           WHEN plan_type LIKE '%monthly%' OR plan_type LIKE '%month%' OR plan_type = 'monthly' THEN 'monthly'
           WHEN plan_type LIKE '%half%' OR plan_type LIKE '%6%' OR plan_type LIKE '%semi%' THEN 'half_yearly'
           WHEN plan_type LIKE '%yearly%' OR plan_type LIKE '%year%' OR plan_type LIKE '%annual%' OR plan_type = 'yearly' THEN 'yearly'
+          WHEN plan_type LIKE '%astro%' OR plan_type = 'astro_report' OR plan_type = 'astro report' THEN 'astro_report'
           ELSE 'other'
         END as plan_category,
         SUM(CASE WHEN user_purchase_count = 1 THEN user_purchase_count ELSE 0 END) as new_transactions,
@@ -134,11 +135,12 @@ const getTransactionStats = async (req, res) => {
         WHEN plan_type LIKE '%monthly%' OR plan_type LIKE '%month%' OR plan_type = 'monthly' THEN 'monthly'
         WHEN plan_type LIKE '%half%' OR plan_type LIKE '%6%' OR plan_type LIKE '%semi%' THEN 'half_yearly'
         WHEN plan_type LIKE '%yearly%' OR plan_type LIKE '%year%' OR plan_type LIKE '%annual%' OR plan_type = 'yearly' THEN 'yearly'
+        WHEN plan_type LIKE '%astro%' OR plan_type = 'astro_report' OR plan_type = 'astro report' THEN 'astro_report'
         ELSE 'other'
       END
     `, params);
 
-    // 6. Plan Type Summary (Monthly, Half-yearly, Yearly totals)
+    // 6. Plan Type Summary - UPDATED to include astro_report
     const [planBreakdown] = await pool.execute(`
       SELECT 
         -- Monthly plans
@@ -173,6 +175,17 @@ const getTransactionStats = async (req, res) => {
           AND status IN ('completed', 'success')
           THEN COALESCE(local_amount, amount, 0) ELSE 0 
         END) as yearly_revenue,
+        
+        -- Astro Report plans - NEW
+        SUM(CASE 
+          WHEN plan_type LIKE '%astro%' OR plan_type = 'astro_report' OR plan_type = 'astro report'
+          THEN 1 ELSE 0 
+        END) as astro_report_count,
+        SUM(CASE 
+          WHEN (plan_type LIKE '%astro%' OR plan_type = 'astro_report' OR plan_type = 'astro report')
+          AND status IN ('completed', 'success')
+          THEN COALESCE(local_amount, amount, 0) ELSE 0 
+        END) as astro_report_revenue,
         
         -- Total revenue for plan breakdown
         SUM(CASE 
@@ -239,11 +252,12 @@ const getTransactionStats = async (req, res) => {
       }
     });
 
-    // Process plan type user breakdown
+    // Process plan type user breakdown - UPDATED to include astro_report
     const planTypeBreakdown = {
       monthly: { new_transactions: 0, repeat_transactions: 0, unique_new_users: 0, unique_repeat_users: 0 },
       half_yearly: { new_transactions: 0, repeat_transactions: 0, unique_new_users: 0, unique_repeat_users: 0 },
-      yearly: { new_transactions: 0, repeat_transactions: 0, unique_new_users: 0, unique_repeat_users: 0 }
+      yearly: { new_transactions: 0, repeat_transactions: 0, unique_new_users: 0, unique_repeat_users: 0 },
+      astro_report: { new_transactions: 0, repeat_transactions: 0, unique_new_users: 0, unique_repeat_users: 0 }
     };
 
     planTypeUserBreakdown.forEach(row => {
@@ -296,7 +310,7 @@ const getTransactionStats = async (req, res) => {
           (row.count / overviewStats[0].total_transactions * 100).toFixed(1) : 0
       })),
 
-      // Plan Type Breakdown (Monthly/Half-yearly/Yearly)
+      // Plan Type Breakdown - UPDATED to include astro_report
       plan_breakdown: {
         monthly_count: parseInt(planBreakdown[0].monthly_count || 0),
         monthly_revenue: parseFloat(planBreakdown[0].monthly_revenue || 0),
@@ -304,11 +318,14 @@ const getTransactionStats = async (req, res) => {
         half_yearly_revenue: parseFloat(planBreakdown[0].half_yearly_revenue || 0),
         yearly_count: parseInt(planBreakdown[0].yearly_count || 0),
         yearly_revenue: parseFloat(planBreakdown[0].yearly_revenue || 0),
+        astro_report_count: parseInt(planBreakdown[0].astro_report_count || 0),
+        astro_report_revenue: parseFloat(planBreakdown[0].astro_report_revenue || 0),
         total_revenue: parseFloat(planBreakdown[0].total_revenue || 0),
         // Add user breakdown by plan type
         monthly_user_breakdown: planTypeBreakdown.monthly,
         half_yearly_user_breakdown: planTypeBreakdown.half_yearly,
-        yearly_user_breakdown: planTypeBreakdown.yearly
+        yearly_user_breakdown: planTypeBreakdown.yearly,
+        astro_report_user_breakdown: planTypeBreakdown.astro_report
       },
 
       // Payment Method Distribution
@@ -602,10 +619,103 @@ const deleteTransaction = async (req, res) => {
   }
 };
 
+const getTransactionSegmentAnalysis = async (req, res) => {
+  try {
+    const { transactionId } = req.params;
+    
+    // This is a complex query that would analyze user payment patterns
+    // For now, I'll provide the structure - you'll need to adapt based on your actual data schema
+    const segmentQuery = `
+      WITH first_payment_days AS (
+        SELECT 
+          user_id,
+          MIN(DATEDIFF(created_at, user_registration_date)) as days_to_first_payment,
+          COUNT(*) as total_transactions,
+          SUM(amount) as total_revenue
+        FROM new_transactions 
+        WHERE status IN ('completed', 'success')
+        GROUP BY user_id
+      ),
+      segment_classification AS (
+        SELECT 
+          *,
+          CASE 
+            WHEN days_to_first_payment = 0 THEN 'Day 1'
+            WHEN days_to_first_payment BETWEEN 1 AND 4 THEN 'Day 2 - 5'
+            WHEN days_to_first_payment BETWEEN 5 AND 6 THEN 'Day 5 - 7'
+            WHEN days_to_first_payment BETWEEN 7 AND 9 THEN 'Day 7 - 10'
+            WHEN days_to_first_payment BETWEEN 10 AND 14 THEN 'Day 10 - 15'
+            WHEN days_to_first_payment BETWEEN 15 AND 19 THEN 'Day 15 - 20'
+            WHEN days_to_first_payment BETWEEN 20 AND 29 THEN 'Day 20 - 30'
+            ELSE 'Day 30+'
+          END as segment
+        FROM first_payment_days
+      )
+      SELECT 
+        segment,
+        COUNT(*) as users,
+        SUM(total_transactions) as transactions,
+        SUM(total_revenue) as revenue,
+        AVG(total_revenue) as avg_revenue,
+        (COUNT(*) / (SELECT COUNT(*) FROM segment_classification) * 100) as conversion_rate
+      FROM segment_classification
+      GROUP BY segment
+      ORDER BY 
+        CASE segment
+          WHEN 'Day 1' THEN 1
+          WHEN 'Day 2 - 5' THEN 2
+          WHEN 'Day 5 - 7' THEN 3
+          WHEN 'Day 7 - 10' THEN 4
+          WHEN 'Day 10 - 15' THEN 5
+          WHEN 'Day 15 - 20' THEN 6
+          WHEN 'Day 20 - 30' THEN 7
+          ELSE 8
+        END
+    `;
+    
+    const [segments] = await pool.execute(segmentQuery);
+    
+    // Calculate totals
+    const totalUsers = segments.reduce((sum, seg) => sum + parseInt(seg.users), 0);
+    const totalTransactions = segments.reduce((sum, seg) => sum + parseInt(seg.transactions), 0);
+    const totalRevenue = segments.reduce((sum, seg) => sum + parseFloat(seg.revenue), 0);
+    
+    const result = {
+      transactionId: parseInt(transactionId),
+      segments: segments.map(seg => ({
+        label: seg.segment,
+        days: seg.segment.replace('Day ', ''),
+        users: parseInt(seg.users),
+        transactions: parseInt(seg.transactions),
+        revenue: parseFloat(seg.revenue),
+        conversionRate: parseFloat(seg.conversion_rate),
+        avgRevenue: parseFloat(seg.avg_revenue)
+      })),
+      totalUsers,
+      totalTransactions,
+      totalRevenue
+    };
+    
+    res.json({
+      success: true,
+      data: result
+    });
+    
+  } catch (error) {
+    console.error('Error fetching segment analysis:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching segment analysis',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   getTransactions,
   getTransactionById,
   updateTransaction,
   deleteTransaction,
-  getTransactionStats
+  getTransactionStats,
+  getTransactionSegmentAnalysis
 };
